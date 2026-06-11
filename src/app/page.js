@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { PLANS } from "@/lib/stripe";
+import { PLANS } from "@/lib/plans";
 
 export default function LandingPage() {
   return (

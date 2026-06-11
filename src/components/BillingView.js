@@ -1,7 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase";
-import { stripe } from "@/lib/stripe";
 
 export default function BillingView() {
   const [sub, setSub] = useState(null);

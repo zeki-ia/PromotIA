@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { PLANS } from "@/lib/stripe";
+import { PLANS } from "@/lib/plans";
 
 export default function CheckoutPage() {
   const [selectedPlan, setSelectedPlan] = useState("pro");
