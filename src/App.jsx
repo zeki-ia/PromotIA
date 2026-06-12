@@ -62,12 +62,19 @@ export default function App() {
 
   async function checkSubscription(userId) {
     try {
-      // Get user's company_id
+      // Get user's role and company_id
       const { data: userRow } = await supabase
         .from('users')
-        .select('company_id')
+        .select('company_id, role')
         .eq('id', userId)
         .maybeSingle()
+
+      // Admin de Delenio — acceso directo sin chequeo de suscripción
+      if (userRow?.role === 'admin') {
+        setPage('app')
+        setLoading(false)
+        return
+      }
 
       if (!userRow?.company_id) {
         // New user — needs to choose a plan
