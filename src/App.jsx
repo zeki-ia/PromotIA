@@ -140,5 +140,5 @@ export default function App() {
   )
 
   // page === 'app'
-  return <PromotIA />
+  return <PromotIA autoAdmin={true} onLogout={handleLogout} />
 }

@@ -1218,9 +1218,9 @@ function ClientAppShell({db,update,clientId,onLogout,fromAdmin,backToAdmin}){
 }
 
 /* ============================================================ ROOT ============================================================ */
-export default function PromotIA(){
+export default function PromotIA({ autoAdmin=false, onLogout }){
   const [db,setDb]=useState(null);
-  const [session,setSession]=useState(null);
+  const [session,setSession]=useState(autoAdmin ? {role:'admin'} : null);
   const [loading,setLoading]=useState(true);
 
   useEffect(()=>{ (async()=>{
@@ -1234,11 +1234,14 @@ export default function PromotIA(){
     (async()=>{ try{ await storage.set(DB_KEY, JSON.stringify(next)); }catch(e){} })();
     return next; }); }
 
+  // Salir: si hay logout externo (Supabase) lo usamos, sino volvemos al login interno
+  const handleLogout = onLogout || (()=>setSession(null));
+
   if(loading||!db) return <div className="promotia"><GlobalStyle/><div style={{minHeight:'100vh',display:'grid',placeItems:'center',background:C.surface2}}><div style={{textAlign:'center'}}><div style={{display:'inline-grid',placeItems:'center',marginBottom:14}}><Mark size={52}/></div><div style={{display:'flex',alignItems:'center',gap:9,color:C.tx2,fontWeight:600}}><Spinner size={16} color={C.primary}/>Cargando PromotIA…</div></div></div></div>;
 
   return <div className="promotia"><GlobalStyle/>
     {!session && <Login db={db} onAdmin={()=>setSession({role:'admin'})} onClient={(id)=>setSession({role:'client',clientId:id})}/>}
-    {session?.role==='admin' && <AdminApp db={db} update={update} onLogout={()=>setSession(null)} openClient={(id)=>setSession({role:'client',clientId:id,fromAdmin:true})}/>}
-    {session?.role==='client' && <ClientAppShell db={db} update={update} clientId={session.clientId} fromAdmin={session.fromAdmin} backToAdmin={()=>setSession({role:'admin'})} onLogout={()=>setSession(null)}/>}
+    {session?.role==='admin' && <AdminApp db={db} update={update} onLogout={handleLogout} openClient={(id)=>setSession({role:'client',clientId:id,fromAdmin:true})}/>}
+    {session?.role==='client' && <ClientAppShell db={db} update={update} clientId={session.clientId} fromAdmin={session.fromAdmin} backToAdmin={()=>setSession({role:'admin'})} onLogout={handleLogout}/>}
   </div>;
 }
