@@ -30,12 +30,17 @@ export default function ClientPortal({ clientId, clientName, onLogout }) {
   const [months, setMonths] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [brand, setBrand] = useState({ color: C.primary, logo: null, title: null })
 
   useEffect(() => {
     fetch(`/api/client-portal?clientId=${clientId}`)
       .then(r => { if (!r.ok) throw new Error(r.status); return r.json() })
       .then(d => { if (d.error) throw new Error(d.error); if (d.months) setMonths(d.months); setLoading(false) })
       .catch(e => { setError('Error al cargar los datos: ' + e.message); setLoading(false) })
+    fetch(`/api/survey-config?clientId=${clientId}`)
+      .then(r => r.ok ? r.json() : {})
+      .then(d => { if (d.primary_color || d.logo_url || d.title) setBrand({ color: d.primary_color || C.primary, logo: d.logo_url || null, title: d.title || null }) })
+      .catch(() => {})
   }, [clientId])
 
   // Todos los datos combinados
@@ -68,11 +73,12 @@ export default function ClientPortal({ clientId, clientName, onLogout }) {
     <div style={{ minHeight: '100vh', background: C.surface, fontFamily: BODY }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Archivo:wght@400;500;600;700&display=swap');*{box-sizing:border-box}`}</style>
 
-      {/* Header */}
-      <div style={{ background: C.grad, padding: '18px 28px', display: 'flex', alignItems: 'center', gap: 14 }}>
+      {/* Header — white-label */}
+      <div style={{ background: brand.color !== C.primary ? brand.color : C.grad, padding: '18px 28px', display: 'flex', alignItems: 'center', gap: 14 }}>
+        {brand.logo && <img src={brand.logo} alt="logo" style={{ height: 36, borderRadius: 6, objectFit: 'contain', background: 'rgba(255,255,255,.15)', padding: '4px 8px' }}/>}
         <div style={{ flex: 1 }}>
           <div style={{ fontFamily: DISP, fontWeight: 700, fontSize: 11, color: 'rgba(255,255,255,.7)', letterSpacing: 1, marginBottom: 2 }}>PORTAL NPS</div>
-          <div style={{ fontFamily: DISP, fontWeight: 700, fontSize: 20, color: '#fff' }}>{clientName || 'Mi empresa'}</div>
+          <div style={{ fontFamily: DISP, fontWeight: 700, fontSize: 20, color: '#fff' }}>{brand.title || clientName || 'Mi empresa'}</div>
         </div>
         <button onClick={onLogout} style={{ background: 'rgba(255,255,255,.15)', border: '1px solid rgba(255,255,255,.3)', color: '#fff', borderRadius: 9, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: DISP }}>Salir</button>
       </div>
@@ -82,7 +88,7 @@ export default function ClientPortal({ clientId, clientName, onLogout }) {
 
         {/* KPIs */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))', gap: 14, marginBottom: 24 }}>
-          <Kpi title="NPS ACTUAL" value={nps !== null ? (nps > 0 ? '+' : '') + nps : '—'} sub="Net Promoter Score" color={npsColor}/>
+          <Kpi title="NPS ACTUAL" value={nps !== null ? (nps > 0 ? '+' : '') + nps : '—'} sub="Net Promoter Score" color={npsColor || brand.color}/>
           <Kpi title="RESPUESTAS" value={allResponses.length} sub="total acumulado"/>
           <Kpi title="PROMOTORES" value={promotores} sub={allResponses.length ? Math.round(promotores/allResponses.length*100) + '%' : ''}/>
           <Kpi title="DETRACTORES" value={detractores} sub={allResponses.length ? Math.round(detractores/allResponses.length*100) + '%' : ''}/>

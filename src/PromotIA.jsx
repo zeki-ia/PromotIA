@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Cell, ReferenceLine } from 'recharts';
-import { TrendingUp, TrendingDown, AlertTriangle, Lightbulb, Target, Upload, ChevronRight, ChevronDown, Users, Activity, Gauge, Download, Sparkles, Building2, Plus, Trash2, Pencil, Check, X, Eye, ArrowLeft, CalendarDays, RotateCcw, LogOut, LayoutDashboard, FileSpreadsheet, MessageSquare, ClipboardList, BarChart3, ShieldCheck, Wand2, Heart, Star, Inbox, Briefcase, ThumbsUp, ThumbsDown, Minus, Package, Quote, Layers, QrCode, Printer, Settings } from 'lucide-react';
+import { TrendingUp, TrendingDown, AlertTriangle, Lightbulb, Target, Upload, ChevronRight, ChevronDown, Users, Activity, Gauge, Download, Sparkles, Building2, Plus, Trash2, Pencil, Check, X, Eye, ArrowLeft, CalendarDays, RotateCcw, LogOut, LayoutDashboard, FileSpreadsheet, MessageSquare, ClipboardList, BarChart3, ShieldCheck, Wand2, Heart, Star, Inbox, Briefcase, ThumbsUp, ThumbsDown, Minus, Package, Quote, Layers, QrCode, Printer, Settings, Bot, FileText, Send, BarChart2, Clock, Zap } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { supabase } from './lib/supabase';
 
@@ -147,6 +147,12 @@ function clientStats(db,id){ const cd=db.data[id]; const months=cd?.months||[];
   const last=months.length? months.map(m=>m.month).sort().slice(-1)[0]:null;
   const m=npsOf(resp);
   return {months:months.length, resp:resp.length, sent, last, nps:m?m.nps:null, rr: sent? r1(resp.length/sent*100):null}; }
+
+/* churn risk: cliente con NPS bajando 3 meses consecutivos y caída >= 10 pts */
+function churnRisk(db,id){ const sorted=(db.data[id]?.months||[]).slice().sort((a,b)=>a.month<b.month?-1:1); if(sorted.length<3)return null; const last3=sorted.slice(-3); const series=last3.map(m=>{const x=npsOf(m.responses);return x?x.nps:null}).filter(v=>v!==null); if(series.length<3)return null; const drop=series[0]-series[2]; return(series[1]<series[0]&&series[2]<series[1]&&drop>=10)?{drop,series,months:last3.map(m=>m.month)}:null; }
+
+/* next survey send date given frequency */
+function nextSendDate(freq){ if(!freq||freq==='ninguna')return null; const now=new Date(); const d=new Date(now.getFullYear(),now.getMonth()+1,1); if(freq==='trimestral'){d.setMonth(Math.ceil((now.getMonth()+1)/3)*3);} else if(freq==='semestral'){d.setMonth(now.getMonth()<6?6:12);} else if(freq==='anual'){d.setMonth(12);d.setFullYear(now.getFullYear());} return d.toLocaleDateString('es-AR',{day:'2-digit',month:'short',year:'numeric'}); }
 
 /* ============================ AI (Claude in Claude) ============================ */
 async function callClaude(prompt, maxTokens=1200){
@@ -447,7 +453,7 @@ function useRealtimeSurvey(update){
 
 function AdminClientes({db,update,goClient}){
   const [edit,setEdit]=useState(null); const [del,setDel]=useState(null); const [qr,setQr]=useState(null);
-  const blank={id:'',name:'',code:'',web:'',sector:'',contexto:'',productos:[''],propuesta:'',segmentos:[...SEGMENTOS],notas:'',surveyTitle:'',surveyColor:'#73017B',surveyLogo:'',surveyQuestion:'¿Qué tan probable es que nos recomiendes?'};
+  const blank={id:'',name:'',code:'',web:'',sector:'',contexto:'',productos:[''],propuesta:'',segmentos:[...SEGMENTOS],notas:'',surveyTitle:'',surveyColor:'#73017B',surveyLogo:'',surveyQuestion:'¿Qué tan probable es que nos recomiendes?',surveyFrequency:'ninguna',contactEmails:''};
   const save=()=>{ const c={...edit, productos:(edit.productos||[]).map(s=>s.trim()).filter(Boolean)}; if(!c.name.trim())return;
     let savedId=c.id;
     update(d=>{ if(c.id){ const i=d.clients.findIndex(x=>x.id===c.id); d.clients[i]={...c}; savedId=c.id; }
@@ -460,8 +466,8 @@ function AdminClientes({db,update,goClient}){
     <Section title="Clientes" hint={`${db.clients.length} empresas · cuentas, contexto comercial y catálogo`} icon={Building2}
       right={<Btn icon={Plus} onClick={()=>setEdit({...blank})}>Nuevo cliente</Btn>}/>
     <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(330px,1fr))',gap:14}}>
-      {db.clients.map(c=>{ const s=clientStats(db,c.id); const b=npsBand(s.nps); return (
-        <Card key={c.id} className="fu" style={{padding:18}}>
+      {db.clients.map(c=>{ const s=clientStats(db,c.id); const b=npsBand(s.nps); const cr=churnRisk(db,c.id); const nextSend=nextSendDate(c.surveyFrequency); return (
+        <Card key={c.id} className="fu" style={{padding:18, border:cr?`1.5px solid ${C.critico}44`:''}}>
           <div style={{display:'flex',alignItems:'flex-start',gap:10}}>
             <div style={{display:'grid',placeItems:'center',width:42,height:42,borderRadius:12,background:C.grad,color:'#fff',fontWeight:700,fontFamily:DISP,fontSize:18}}>{c.name[0]}</div>
             <div style={{flex:1,minWidth:0}}>
@@ -472,9 +478,11 @@ function AdminClientes({db,update,goClient}){
             <IconBtn icon={Trash2} title="Eliminar" tone="danger" onClick={()=>setDel(c)}/>
           </div>
           {c.contexto&&<div style={{fontSize:12.5,color:C.tx2,marginTop:11,lineHeight:1.5,display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical',overflow:'hidden'}}>{c.contexto}</div>}
+          {cr&&<div style={{display:'flex',alignItems:'center',gap:6,background:C.criticoBg,color:C.critico,borderRadius:9,padding:'7px 10px',marginTop:10,fontSize:12.5,fontWeight:700}}><AlertTriangle size={13}/>NPS cayó {cr.drop} pts en 3 meses — posible riesgo de churn</div>}
           <div style={{display:'flex',gap:6,flexWrap:'wrap',marginTop:12}}>
             <Tag tone="brand">{s.months} meses</Tag><Tag>{s.resp} respuestas</Tag>
             {s.nps!=null&&<Tag tone={b==='exc'||b==='bueno'?'good':b==='mejorar'?'warn':'bad'}>NPS {s.nps>0?'+':''}{s.nps}</Tag>}
+            {nextSend&&<Tag tone="neutral"><Clock size={10} style={{marginRight:3,verticalAlign:'-1px'}}/>Próx. encuesta: {nextSend}</Tag>}
           </div>
           <div style={{display:'flex',gap:8,marginTop:14}}>
             <Btn size="sm" variant="soft" icon={Eye} onClick={()=>goClient(c.id)} style={{flex:1}}>Ver portal</Btn>
@@ -514,6 +522,14 @@ function AdminClientes({db,update,goClient}){
           </div>
           <Field label="URL del logo (opcional)" hint="Link directo a una imagen (PNG/SVG)"><Input value={edit.surveyLogo||''} onChange={e=>setEdit({...edit,surveyLogo:e.target.value})} placeholder="https://..."/></Field>
           <Field label="Pregunta NPS personalizada"><Input value={edit.surveyQuestion||''} onChange={e=>setEdit({...edit,surveyQuestion:e.target.value})} placeholder="¿Qué tan probable es que nos recomiendes?"/></Field>
+        </div>
+        <div style={{borderTop:`1px solid ${C.line}`,paddingTop:16,marginTop:4}}>
+          <div style={{display:'flex',alignItems:'center',gap:7,fontFamily:DISP,fontWeight:700,fontSize:13,color:C.primary,marginBottom:12}}><Zap size={14}/>Encuestas programadas</div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+            <Field label="Frecuencia de envío"><Select value={edit.surveyFrequency||'ninguna'} onChange={e=>setEdit({...edit,surveyFrequency:e.target.value})}><option value="ninguna">Sin programación</option><option value="mensual">Mensual</option><option value="trimestral">Trimestral</option><option value="semestral">Semestral</option><option value="anual">Anual</option></Select></Field>
+            <Field label="Emails de contacto" hint="Separados por coma"><Input value={edit.contactEmails||''} onChange={e=>setEdit({...edit,contactEmails:e.target.value})} placeholder="a@empresa.com, b@empresa.com"/></Field>
+          </div>
+          {(edit.surveyFrequency&&edit.surveyFrequency!=='ninguna')&&<div style={{fontSize:12,color:C.tx3,background:C.surface,borderRadius:9,padding:'8px 12px'}}>Próximo envío: {nextSendDate(edit.surveyFrequency)} · Requiere configurar RESEND_API_KEY en Vercel.</div>}
         </div>
         <div style={{display:'flex',justifyContent:'flex-end',gap:8,marginTop:6}}><Btn variant="ghost" onClick={()=>setEdit(null)}>Cancelar</Btn><Btn icon={Check} onClick={save}>Guardar</Btn></div>
       </div>}
@@ -643,8 +659,14 @@ function AdminUso({db}){
   const totMonths=rows.reduce((a,r)=>a+r.s.months,0);
   const activeUsers=db.users.filter(u=>u.status==='Activo').length;
   const chart=rows.map(r=>({name:r.c.name.split(' ')[0],NPS:r.s.nps}));
+  const churns=db.clients.filter(c=>churnRisk(db,c.id));
   return <div>
     <Section title="Uso de la plataforma" hint="Actividad y NPS de cada cliente" icon={Activity}/>
+    {churns.length>0&&<div style={{background:C.criticoBg,border:`1px solid ${C.critico}33`,borderRadius:14,padding:'14px 18px',marginBottom:16}}>
+      <div style={{display:'flex',alignItems:'center',gap:8,fontFamily:DISP,fontWeight:700,fontSize:14,color:C.critico,marginBottom:8}}><AlertTriangle size={16}/>Alertas de riesgo de churn ({churns.length})</div>
+      <div style={{display:'flex',flexWrap:'wrap',gap:8}}>{churns.map(c=>{const cr=churnRisk(db,c.id);return<div key={c.id} style={{background:'#fff',borderRadius:9,padding:'7px 12px',fontSize:12.5,fontWeight:600,color:C.tx,border:`1px solid ${C.critico}33`}}>{c.name} <span style={{color:C.critico}}>↓{cr.drop} pts</span> ({cr.series.map(v=>(v>0?'+':'')+v).join('→')})</div>;})}
+      </div>
+    </div>}
     <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:14,marginBottom:8}}>
       <Kpi title="Clientes activos" value={db.clients.length} icon={Building2}/>
       <Kpi title="Respuestas totales" value={totResp.toLocaleString('es')} icon={MessageSquare} tone="ink"/>
@@ -1188,6 +1210,129 @@ function Login({db,onAdmin,onClient}){
   </div>;
 }
 
+/* ============================================================ ADMIN: BENCHMARK ============================================================ */
+function AdminBenchmark({db}){
+  const [data,setData]=useState(null); const [loading,setLoading]=useState(false); const [err,setErr]=useState(false);
+  async function load(){ setLoading(true); setErr(false);
+    try{ const r=await fetch('/api/benchmark'); if(!r.ok)throw new Error(r.status); const d=await r.json(); if(d.error)throw new Error(d.error); setData(d); }
+    catch(e){ setErr(true); } finally{setLoading(false);} }
+  useEffect(()=>{load();},[]);
+  const rows=db.clients.map(c=>{ const s=clientStats(db,c.id); const sectorAvg=data?.sectorStats?.find(x=>x.sector===c.sector)?.nps??null; return {c,s,sectorAvg}; });
+  return <div>
+    <Section title="Benchmark entre clientes" hint="Comparativa de NPS por sector y posición en la plataforma" icon={BarChart2}
+      right={<Btn variant="ghost" icon={RotateCcw} size="sm" onClick={load} disabled={loading}>Actualizar</Btn>}/>
+    {err&&<div style={{background:C.criticoBg,color:C.critico,padding:'12px 16px',borderRadius:12,marginBottom:16,fontSize:13}}>Error al cargar datos del benchmark.</div>}
+    <div style={{display:'grid',gridTemplateColumns:'1.4fr 1fr',gap:14,marginBottom:16}}>
+      <Card style={{padding:0,overflow:'hidden'}}>
+        <div style={{padding:'14px 18px',fontWeight:700,fontSize:14,borderBottom:`1px solid ${C.line}`,fontFamily:DISP}}>Comparativa por cliente</div>
+        <table style={{width:'100%',borderCollapse:'collapse',fontSize:12.5}}>
+          <thead><tr style={{background:C.surface2,color:C.tx3,fontSize:11}}>{['Cliente','Sector','NPS propio','Avg sector','Diferencia'].map((h,i)=><th key={i} style={{padding:'10px 14px',fontWeight:700,textAlign:'left'}}>{h}</th>)}</tr></thead>
+          <tbody>{rows.map(({c,s,sectorAvg})=>{const diff=s.nps!=null&&sectorAvg!=null?s.nps-sectorAvg:null;return<tr key={c.id} style={{borderTop:`1px solid ${C.line}`}}>
+            <td style={{padding:'11px 14px',fontWeight:600}}>{c.name}</td>
+            <td style={{padding:'11px 14px',color:C.tx3}}>{c.sector||'—'}</td>
+            <td style={{padding:'11px 14px'}}>{s.nps!=null?<span style={{fontWeight:700,color:bandCol(npsBand(s.nps))}}>{s.nps>0?'+':''}{s.nps}</span>:'—'}</td>
+            <td style={{padding:'11px 14px'}}>{sectorAvg!=null?(sectorAvg>0?'+':'')+sectorAvg:<span style={{color:C.tx3}}>Sin datos</span>}</td>
+            <td style={{padding:'11px 14px'}}>{diff!=null?<Tag tone={diff>=0?'good':'bad'}>{diff>0?'+':''}{diff} pts</Tag>:'—'}</td>
+          </tr>;})}
+          </tbody>
+        </table>
+      </Card>
+      <Card style={{padding:18}}>
+        <div style={{fontWeight:700,fontSize:14,fontFamily:DISP,marginBottom:16}}>NPS promedio por sector</div>
+        {loading&&<div style={{textAlign:'center',padding:24}}><Spinner size={20} color={C.primary}/></div>}
+        {!loading&&data?.sectorStats?.length?<div style={{display:'flex',flexDirection:'column',gap:10}}>
+          {data.sectorStats.map(s=><div key={s.sector}>
+            <div style={{display:'flex',justifyContent:'space-between',marginBottom:4}}><span style={{fontSize:13,fontWeight:600}}>{s.sector}</span><span style={{fontSize:13,fontWeight:700,color:bandCol(npsBand(s.nps))}}>{s.nps>0?'+':''}{s.nps}</span></div>
+            <div style={{height:6,borderRadius:3,background:C.line,overflow:'hidden'}}><div style={{height:'100%',width:Math.min(100,Math.max(0,(s.nps+100)/2))+'%',background:bandCol(npsBand(s.nps)),borderRadius:3}}/></div>
+            <div style={{fontSize:11,color:C.tx3,marginTop:2}}>n={s.n} respuestas</div>
+          </div>)}
+        </div>:!loading&&<Empty icon={BarChart2} title="Sin datos suficientes" sub="Se necesitan al menos 5 respuestas por sector."/>}
+        {data&&<div style={{marginTop:16,padding:'12px 14px',background:C.surface,borderRadius:12}}>
+          <div style={{fontSize:11,color:C.tx3,fontWeight:700,marginBottom:6}}>PLATAFORMA GLOBAL</div>
+          <div style={{display:'flex',gap:20}}>{[{v:data.globalNPS!=null?(data.globalNPS>0?'+':'')+data.globalNPS:'—',l:'NPS global',c:data.globalNPS!=null?bandCol(npsBand(data.globalNPS)):C.tx3},{v:(data.totalResponses||0).toLocaleString('es'),l:'respuestas',c:C.tx},{v:data.totalClients||0,l:'clientes',c:C.tx}].map(({v,l,c})=><div key={l}><div style={{fontFamily:DISP,fontWeight:700,fontSize:20,color:c}}>{v}</div><div style={{fontSize:11,color:C.tx3}}>{l}</div></div>)}</div>
+        </div>}
+      </Card>
+    </div>
+  </div>;
+}
+
+/* ============================================================ CLIENT: CHAT CON DATOS ============================================================ */
+function ClientChat({db,clientId}){
+  const [msgs,setMsgs]=useState([{role:'assistant',text:'¡Hola! Soy tu asistente NPS. Puedo ayudarte a entender tus datos, identificar tendencias y sugerir acciones. ¿En qué te puedo ayudar?'}]);
+  const [input,setInput]=useState(''); const [loading,setLoading]=useState(false); const endRef=useRef(null);
+  const c=db.clients.find(x=>x.id===clientId); const cd=db.data[clientId];
+  const allResp=(cd?.months||[]).flatMap(m=>m.responses); const m=npsOf(allResp); const segs=bySegment(allResp,'Segmento');
+  useEffect(()=>{endRef.current?.scrollIntoView({behavior:'smooth'});},[msgs]);
+  const ctxStr=`Sos un asistente NPS B2B para ${c?.name||'la empresa'}. Respondé de forma concisa y accionable en español.\n\nDATOS:\n${ctxText(c)}\n${m?diagText(m,segs):'Sin datos de NPS todavía.'}\nMeses con datos: ${cd?.months?.length||0}.\nComentarios recientes: ${comments(allResp,null).slice(0,5).map(x=>`"${x.txt}"(${x.e}/10)`).join(' | ')||'ninguno'}.`;
+  async function send(){ if(!input.trim()||loading)return; const userMsg=input.trim(); setInput(''); setMsgs(prev=>[...prev,{role:'user',text:userMsg}]); setLoading(true);
+    try{ const history=msgs.map(x=>`${x.role==='user'?'Usuario':'Asistente'}: ${x.text}`).join('\n'); const res=await callClaude(`${ctxStr}\n\nCONVERSACIÓN:\n${history}\n\nUsuario: ${userMsg}\n\nAsistente:`,900); setMsgs(prev=>[...prev,{role:'assistant',text:res}]); }
+    catch(e){ setMsgs(prev=>[...prev,{role:'assistant',text:'Hubo un error. Por favor intentá de nuevo.'}]); } finally{setLoading(false);} }
+  return <div>
+    <Section title="Chat con datos" hint="Consultá tu NPS con IA — responde en base a tus datos reales" icon={Bot}/>
+    <Card style={{padding:0,overflow:'hidden',display:'flex',flexDirection:'column',height:'calc(100vh - 210px)',minHeight:400}}>
+      <div style={{flex:1,overflow:'auto',padding:20,display:'flex',flexDirection:'column',gap:12}}>
+        {msgs.map((msg,i)=><div key={i} style={{display:'flex',justifyContent:msg.role==='user'?'flex-end':'flex-start'}}>
+          {msg.role==='assistant'&&<div style={{width:28,height:28,borderRadius:8,background:C.grad,display:'grid',placeItems:'center',color:'#fff',flexShrink:0,marginRight:8,alignSelf:'flex-start',marginTop:2}}><Bot size={14}/></div>}
+          <div style={{maxWidth:'75%',background:msg.role==='user'?C.grad:'#fff',color:msg.role==='user'?'#fff':C.tx,padding:'12px 16px',borderRadius:msg.role==='user'?'16px 16px 4px 16px':'16px 16px 16px 4px',fontSize:13.5,lineHeight:1.6,border:msg.role==='assistant'?`1px solid ${C.line}`:'none',boxShadow:msg.role==='user'?'0 4px 14px rgba(115,1,123,.3)':'0 1px 3px rgba(26,10,28,.05)',whiteSpace:'pre-wrap'}}>{msg.text}</div>
+        </div>)}
+        {loading&&<div style={{display:'flex',alignItems:'center',gap:8}}><div style={{width:28,height:28,borderRadius:8,background:C.grad,display:'grid',placeItems:'center',color:'#fff',flexShrink:0}}><Bot size={14}/></div><div style={{background:'#fff',border:`1px solid ${C.line}`,borderRadius:'16px 16px 16px 4px',padding:'12px 16px'}}><Spinner size={14} color={C.primary}/></div></div>}
+        <div ref={endRef}/>
+      </div>
+      <div style={{borderTop:`1px solid ${C.line}`,padding:'12px 16px',display:'flex',gap:8,background:'#fff'}}>
+        <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send();}}} placeholder="Preguntá sobre tu NPS, tendencias, detractores..." style={{...inputCss,flex:1}} disabled={loading}/>
+        <Btn onClick={send} disabled={loading||!input.trim()} icon={Send}>Enviar</Btn>
+      </div>
+    </Card>
+  </div>;
+}
+
+/* ============================================================ CLIENT: INFORME EJECUTIVO ============================================================ */
+function ClientInforme({db,clientId}){
+  const [informe,setInforme]=useState(''); const [loading,setLoading]=useState(false); const [err,setErr]=useState(false);
+  const c=db.clients.find(x=>x.id===clientId); const cd=db.data[clientId];
+  const allResp=(cd?.months||[]).flatMap(m=>m.responses); const m=npsOf(allResp); const segs=bySegment(allResp,'Segmento');
+  const months=(cd?.months||[]).slice().sort((a,b)=>a.month<b.month?-1:1);
+  const trend=months.map(mo=>{const x=npsOf(mo.responses);return x?`${mLabel(mo.month)}: NPS ${x.nps>0?'+':''}${x.nps}(n=${x.n})`:null;}).filter(Boolean);
+  const commentsPro=comments(allResp,'pro').slice(0,5); const commentsDet=comments(allResp,'det').slice(0,5);
+  async function generate(){ setLoading(true); setErr(false);
+    const prompt=`Sos consultor senior de experiencia del cliente. Generá un informe ejecutivo profesional en español para la dirección (máx 500 palabras).
+
+EMPRESA: ${ctxText(c)}
+DATOS NPS: ${m?diagText(m,segs):'Sin datos suficientes.'}
+Evolución mensual: ${trend.join(' → ')||'Sin histórico.'}
+VOCES PROMOTORES: ${commentsPro.map(x=>`"${x.txt}"`).join(' | ')||'Sin comentarios.'}
+VOCES DETRACTORES: ${commentsDet.map(x=>`"${x.txt}"`).join(' | ')||'Sin comentarios.'}
+
+Incluí: 1. Síntesis ejecutiva. 2. Puntos fuertes. 3. Alertas y oportunidades. 4. Recomendaciones (3 acciones). 5. Conclusión. Usá secciones tituladas.`;
+    try{ const res=await callClaude(prompt,1600); setInforme(res); }
+    catch(e){ setErr(true); } finally{setLoading(false);} }
+  return <div>
+    <Section title="Informe ejecutivo" hint="Generá un informe PDF listo para presentar a dirección" icon={FileText}
+      right={<div style={{display:'flex',gap:8}}>
+        <Btn variant="ghost" icon={Printer} onClick={()=>window.print()} disabled={!informe}>Imprimir / PDF</Btn>
+        <Btn icon={Sparkles} onClick={generate} disabled={loading}>{loading?<><Spinner size={14}/>Generando…</>:'Generar informe'}</Btn>
+      </div>}/>
+    {err&&<div style={{background:C.criticoBg,color:C.critico,padding:'12px 16px',borderRadius:12,marginBottom:16,fontSize:13}}>No se pudo generar el informe. Verificá la conexión con la IA.</div>}
+    {!informe&&!loading&&<Card style={{padding:48,textAlign:'center'}}>
+      <div style={{fontSize:48,marginBottom:16}}>📋</div>
+      <div style={{fontFamily:DISP,fontWeight:700,fontSize:18,color:C.tx2,marginBottom:8}}>Informe ejecutivo con IA</div>
+      <div style={{fontSize:13.5,color:C.tx3,maxWidth:400,margin:'0 auto 24px'}}>La IA analiza tu NPS, tendencias y comentarios para generar un informe ejecutivo listo para presentar.</div>
+      <Btn icon={Sparkles} onClick={generate}>Generar informe ahora</Btn>
+    </Card>}
+    {loading&&<Card style={{padding:48,textAlign:'center'}}><Spinner size={28} color={C.primary}/><div style={{marginTop:16,color:C.tx2,fontFamily:DISP,fontWeight:600}}>Analizando datos y generando informe…</div></Card>}
+    {informe&&<Card style={{padding:32}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:24,paddingBottom:16,borderBottom:`1px solid ${C.line}`}}>
+        <div>
+          <div style={{fontFamily:DISP,fontWeight:700,fontSize:22,color:C.tx}}>Informe Ejecutivo NPS</div>
+          <div style={{fontSize:13,color:C.tx3,marginTop:4}}>{c?.name} · {new Date().toLocaleDateString('es-AR',{day:'numeric',month:'long',year:'numeric'})}</div>
+        </div>
+        <Wordmark size={16} sub={false}/>
+      </div>
+      <div style={{fontSize:14.5,lineHeight:1.8,color:C.tx,whiteSpace:'pre-wrap'}}>{informe}</div>
+    </Card>}
+  </div>;
+}
+
 /* ============================================================ NAV + SHELL ============================================================ */
 function NavItem({icon:Icon,label,active,onClick}){
   return <button onClick={onClick} style={{display:'flex',alignItems:'center',gap:11,width:'100%',padding:'11px 13px',borderRadius:11,border:'none',cursor:'pointer',marginBottom:3,textAlign:'left',
@@ -1220,14 +1365,15 @@ function AdminApp({db,update,onLogout,openClient}){
     {key:'clientes',label:'Clientes',icon:Building2},
     {key:'usuarios',label:'Usuarios y accesos',icon:ShieldCheck},
     {key:'uso',label:'Uso',icon:Activity},
+    {key:'benchmark',label:'Benchmark',icon:BarChart2},
     {key:'cross',label:'Cross-sell IA',icon:Sparkles},
   ];
   return <Shell nav={nav} active={view} setActive={setView} accentName="ADMINISTRACIÓN" brandSub="PromotIA · Delenio People"
     topRight={<><Tag tone="brand"><ShieldCheck size={12} style={{marginRight:4,verticalAlign:'-2px'}}/>Admin</Tag><Btn size="sm" variant="ghost" icon={LogOut} onClick={onLogout}>Salir</Btn></>}>
     {view==='clientes'&&<AdminClientes db={db} update={update} goClient={openClient}/>}
-
     {view==='usuarios'&&<AdminUsuarios db={db} update={update}/>}
     {view==='uso'&&<AdminUso db={db}/>}
+    {view==='benchmark'&&<AdminBenchmark db={db}/>}
     {view==='cross'&&<AdminCrossSell db={db}/>}
   </Shell>;
 }
@@ -1239,6 +1385,8 @@ function ClientAppShell({db,update,clientId,onLogout,fromAdmin,backToAdmin}){
     {key:'historico',label:'Dashboard histórico',icon:BarChart3},
     {key:'resumen',label:'NPS del año',icon:LayoutDashboard},
     {key:'voces',label:'Voz del cliente',icon:Quote},
+    {key:'chat',label:'Chat con IA',icon:Bot},
+    {key:'informe',label:'Informe ejecutivo',icon:FileText},
     {key:'contexto',label:'Mi empresa',icon:Package},
     {key:'plan',label:'Plan de acción',icon:ClipboardList},
   ];
@@ -1250,6 +1398,8 @@ function ClientAppShell({db,update,clientId,onLogout,fromAdmin,backToAdmin}){
     {view==='historico'&&<ClientHistorico db={db} clientId={clientId}/>}
     {view==='resumen'&&<ClientResumen db={db} clientId={clientId}/>}
     {view==='voces'&&<ClientVoces db={db} clientId={clientId} update={update}/>}
+    {view==='chat'&&<ClientChat db={db} clientId={clientId}/>}
+    {view==='informe'&&<ClientInforme db={db} clientId={clientId}/>}
     {view==='contexto'&&<ClientContexto db={db} clientId={clientId} update={update}/>}
     {view==='plan'&&<ClientPlan db={db} clientId={clientId} update={update}/>}
   </Shell>;
