@@ -1,0 +1,1244 @@
+import React, { useState, useMemo, useEffect } from 'react';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Cell, ReferenceLine } from 'recharts';
+import { TrendingUp, TrendingDown, AlertTriangle, Lightbulb, Target, Upload, ChevronRight, ChevronDown, Users, Activity, Gauge, Download, Sparkles, Building2, Plus, Trash2, Pencil, Check, X, Eye, ArrowLeft, CalendarDays, RotateCcw, LogOut, LayoutDashboard, FileSpreadsheet, MessageSquare, ClipboardList, BarChart3, ShieldCheck, Wand2, Heart, Star, Inbox, Briefcase, ThumbsUp, ThumbsDown, Minus, Package, Quote, Layers } from 'lucide-react';
+import * as XLSX from 'xlsx';
+
+/* ============================ PERSISTENCIA (autocontenida) ============================
+   Fuente de verdad: función serverless /api/state (Supabase, credenciales en el servidor).
+   Si /api/state no existe (todavía sin Supabase o en `vite dev`), cae a localStorage.
+   Así la app nunca se rompe. Toda la app guarda su estado bajo una sola clave (DB_KEY). */
+const STATE_URL = '/api/state';
+const LS_PREFIX = 'promotia:';
+let serverOK = true;
+const lsGet = k => { try { const v = localStorage.getItem(LS_PREFIX + k); return v == null ? null : { key: k, value: v }; } catch (e) { return null; } };
+const lsSet = (k, v) => { try { localStorage.setItem(LS_PREFIX + k, v); return { key: k, value: v }; } catch (e) { return null; } };
+const lsDel = k => { try { localStorage.removeItem(LS_PREFIX + k); return { key: k, deleted: true }; } catch (e) { return null; } };
+const storage = {
+  async get(key) {
+    if (serverOK) {
+      try {
+        const r = await fetch(STATE_URL, { method: 'GET' });
+        if (r.ok) { const d = await r.json(); if (d && d.value != null) lsSet(key, d.value); return d && d.value != null ? { key, value: d.value } : null; }
+        if (r.status === 404 || r.status === 501) serverOK = false;
+      } catch (e) { serverOK = false; }
+    }
+    return lsGet(key);
+  },
+  async set(key, value) {
+    lsSet(key, value);
+    if (serverOK) {
+      try { const r = await fetch(STATE_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ value }) }); if (!r.ok && (r.status === 404 || r.status === 501)) serverOK = false; }
+      catch (e) { serverOK = false; }
+    }
+    return { key, value };
+  },
+  async delete(key) {
+    lsDel(key);
+    if (serverOK) { try { await fetch(STATE_URL, { method: 'DELETE' }); } catch (e) { serverOK = false; } }
+    return { key, deleted: true };
+  },
+};
+
+/* ============================ DESIGN TOKENS — Delenio Magenta (light) ============================ */
+const C = {
+  bg:'#FFFFFF', surface:'#F7F2FA', surface2:'#FCFAFE', wash:'#F3DCF2',
+  line:'#E7DEEC', line2:'#F1EAF4',
+  tx:'#1A0A1C', tx2:'#5E4E64', tx3:'#A99BB0',
+  primary:'#73017B', primaryD:'#52015A', magenta:'#E40993', magenta2:'#F46BC2', indigo:'#0c01a4',
+  lila:'#B061B8', lila2:'#D9A9DF', lila3:'#EFD9F1', lila4:'#F7ECF8',
+  grad:'linear-gradient(120deg,#73017B 0%,#A8108F 55%,#E40993 100%)',
+  gradHero:'linear-gradient(125deg,#0c01a4 0%,#52015A 38%,#73017B 64%,#E40993 100%)',
+  gradSoft:'linear-gradient(120deg,#EFD9F1,#FBE3F2)',
+  // NPS bands (score)
+  exc:'#1E9E6A', bueno:'#73017B', mejorar:'#E8A23D', critico:'#E5564B',
+  excBg:'#E0F3EA', buenoBg:'#F3E6F4', mejorarBg:'#FCF1DF', criticoBg:'#FCE7E5',
+  // categorías NPS
+  promotor:'#1E9E6A', pasivo:'#C9BACF', detractor:'#E5564B',
+  promotorBg:'#E0F3EA', detractorBg:'#FCE7E5',
+};
+const DISP = "'Quicksand','Trebuchet MS',sans-serif";
+const BODY = "'Archivo','Segoe UI',system-ui,-apple-system,sans-serif";
+
+/* ============================ PURE HELPERS ============================ */
+const norm = s => String(s==null?'':s).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]/g,'');
+const r1 = x => Math.round(x*10)/10;
+const npsBand = s => s==null?null : s>=50?'exc' : s>=30?'bueno' : s>=0?'mejorar' : 'critico';
+const bandName = b => ({exc:'Excelente',bueno:'Bueno',mejorar:'A mejorar',critico:'Crítico'}[b]);
+const bandCol = b => C[b];
+const bandBg  = b => C[b+'Bg'];
+const MES = ['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+const MESLONG = ['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+const mLabel = m => { const [y,mm]=m.split('-'); return MES[+mm]+" '"+y.slice(2); };
+const yearOf = m => m.split('-')[0];
+const uid = (p='id') => p+'_'+Math.random().toString(36).slice(2,9);
+const SEGMENTOS = ['Enterprise','Mid-Market','SMB'];
+
+/* Portfolio Delenio completo — 5 unidades de negocio (cross-sell con IA) */
+const UNITS = {
+ 'Reingeniería Comercial':'#0c01a4',
+ 'Growth':'#1E9E6A',
+ 'Innovación':'#E40993',
+ 'Marketing':'#E8A23D',
+ 'People':'#73017B',
+};
+const PORTFOLIO = [
+ // Reingeniería Comercial — profesionalizar el área comercial B2B
+ {u:'Reingeniería Comercial', k:'ADN Comercial + IA', f:'Diagnóstico y rediseño de la estrategia comercial potenciado con IA.'},
+ {u:'Reingeniería Comercial', k:'Ingeniería de procesos comerciales', f:'Diseño y optimización del proceso de venta consultiva por etapas.'},
+ {u:'Reingeniería Comercial', k:'Esquemas de compensación', f:'Diseño de incentivos y comisiones para la fuerza de ventas.'},
+ {u:'Reingeniería Comercial', k:'Mentoring comercial', f:'Acompañamiento y profesionalización de líderes y equipos de venta.'},
+ {u:'Reingeniería Comercial', k:'Modelo de gestión comercial', f:'Matrices, metas y funnels (cliente nuevo, existente, upsell y cross-sell).'},
+ {u:'Reingeniería Comercial', k:'Selección de perfiles comerciales', f:'Selección de vendedores y roles comerciales clave.'},
+ {u:'Reingeniería Comercial', k:'Directorio Comercial Externo', f:'Dirección comercial externa / fuerza de ventas tercerizada.'},
+ {u:'Reingeniería Comercial', k:'Campus Virtual', f:'Formación y entrenamiento comercial para el equipo.'},
+ {u:'Reingeniería Comercial', k:'Desembarco en nuevos mercados', f:'Internacionalización y entrada a nuevos nichos o segmentos.'},
+ // Growth — ingresos recurrentes y cartera
+ {u:'Growth', k:'Generación de demanda', f:'Más y mejores oportunidades comerciales alineadas al cliente ideal.'},
+ {u:'Growth', k:'Optimización del proceso de ventas', f:'Diagnóstico del funnel y mejoras de conversión etapa por etapa.'},
+ {u:'Growth', k:'Rendimiento de cartera', f:'Subir ticket medio, recompra y potencial de los clientes actuales (upsell/cross-sell).'},
+ {u:'Growth', k:'Retención y fidelización', f:'Análisis de churn, estrategias de fidelización y medición de NPS.'},
+ {u:'Growth', k:'Indicadores y analítica comercial', f:'Trazabilidad y métricas estratégicas de toda el área comercial.'},
+ // Innovación — tecnología e IA aplicada al negocio
+ {u:'Innovación', k:'Automatización de procesos', f:'Automatizaciones en CRM, chatbots y flujos del proceso comercial.'},
+ {u:'Innovación', k:'Agentes de IA a medida', f:'Implementación de agentes de IA específicos para el negocio.'},
+ {u:'Innovación', k:'Digitalización de ventas consultivas', f:'Llevar el proceso comercial tradicional al mundo digital.'},
+ // Marketing — demanda y leads
+ {u:'Marketing', k:'Marketing de ventas / demand gen', f:'Campañas y contenidos para generar demanda calificada.'},
+ {u:'Marketing', k:'Estrategias inbound & outbound', f:'Generación de demanda combinando inbound y outbound según el cliente ideal.'},
+ {u:'Marketing', k:'Calidad de leads e ICP', f:'Definición del cliente ideal y mejora de la calidad de los leads.'},
+ {u:'Marketing', k:'Estrategia de nicho', f:'Posicionamiento y entrada en un nicho específico.'},
+ // People — talento y RRHH
+ {u:'People', k:'People Insight', f:'Diagnóstico de madurez y riesgos de RRHH (18 dimensiones).'},
+ {u:'People', k:'People Evolution', f:'Diseño organizacional y evolución de roles con IA.'},
+ {u:'People', k:'People Blueprint', f:'Diseño e implementación de procesos ágiles de RRHH.'},
+ {u:'People', k:'People Tech', f:'Transformación digital de RRHH: HRIS, ATS y agentes de IA.'},
+ {u:'People', k:'People Match', f:'Headhunting y selección de talento para roles clave.'},
+ {u:'People', k:'People Drive', f:'Aceleración comercial y desarrollo de líderes de venta.'},
+ {u:'People', k:'People Copilot', f:'Dirección de RRHH fraccional / acompañamiento estratégico continuo.'},
+ {u:'People', k:'CEO Copilot', f:'Sparring estratégico senior 1:1 para CEO y fundadores.'},
+];
+
+/* ============================ NPS ANALYTICS ENGINE ============================ */
+function npsOf(resp){
+  const es = resp.map(r=>r.e).filter(v=>v!=null);
+  if(!es.length) return null;
+  const n=es.length;
+  const pro=es.filter(v=>v>=9).length, pas=es.filter(v=>v>=7&&v<=8).length, det=es.filter(v=>v<=6).length;
+  const nps=Math.round(pro/n*100)-Math.round(det/n*100);
+  return { nps, n, pro, pas, det, proP:r1(pro/n*100), pasP:r1(pas/n*100), detP:r1(det/n*100), avg:r1(es.reduce((a,b)=>a+b,0)/n) };
+}
+function filterResp(resp,f){ let r=resp; for(const k in f){ if(f[k]) r=r.filter(x=>x.d&&x.d[k]===f[k]); } return r; }
+function demoOptions(resp,key){ const s=new Set(); resp.forEach(r=>{ if(r.d&&r.d[key])s.add(r.d[key]); }); return [...s].sort(); }
+function bySegment(resp,key){
+  const map={}; resp.forEach(r=>{ const k=r.d&&r.d[key]; if(!k)return; (map[k]=map[k]||[]).push(r); });
+  return Object.entries(map).map(([name,rs])=>{ const m=npsOf(rs); return {name, nps:m?m.nps:null, n:rs.length, proP:m?m.proP:0, detP:m?m.detP:0}; }).filter(x=>x.nps!=null).sort((a,b)=>b.nps-a.nps);
+}
+function comments(resp,kind){ // kind: 'pro' | 'det' | 'pas' | null
+  return resp.filter(r=>r.c && (!kind || (kind==='pro'?r.e>=9 : kind==='det'?r.e<=6 : r.e>=7&&r.e<=8))).map(r=>({txt:r.c, e:r.e, seg:r.d?.Segmento}));
+}
+
+/* all responses of a client for a given year */
+function yearResp(cdata, year){ const out=[]; (cdata?.months||[]).forEach(m=>{ if(yearOf(m.month)===String(year)) m.responses.forEach(r=>out.push(r)); }); return out; }
+function clientYears(cdata){ const ys=new Set(); (cdata?.months||[]).forEach(m=>ys.add(yearOf(m.month))); return [...ys].sort(); }
+function monthsOfYear(cdata, year){ return (cdata?.months||[]).filter(m=>yearOf(m.month)===String(year)).sort((a,b)=>a.month<b.month?-1:1); }
+function clientStats(db,id){ const cd=db.data[id]; const months=cd?.months||[];
+  const resp=months.flatMap(m=>m.responses); const sent=months.reduce((a,m)=>a+(m.sent||m.responses.length),0);
+  const last=months.length? months.map(m=>m.month).sort().slice(-1)[0]:null;
+  const m=npsOf(resp);
+  return {months:months.length, resp:resp.length, sent, last, nps:m?m.nps:null, rr: sent? r1(resp.length/sent*100):null}; }
+
+/* ============================ AI (Claude in Claude) ============================ */
+async function callClaude(prompt, maxTokens=1200){
+  // En producción la llamada pasa por la función serverless de Netlify (/api/claude),
+  // que agrega la API key del lado del servidor. La key NUNCA viaja al browser.
+  const res = await fetch('/api/claude',{
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ model:'claude-sonnet-4-20250514', max_tokens:maxTokens, messages:[{role:'user',content:prompt}] })
+  });
+  if(!res.ok) throw new Error('API '+res.status);
+  const data = await res.json();
+  return (data.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('\n');
+}
+function parseJSON(t){ if(!t) return null; let s=String(t).trim().replace(/^```json/i,'').replace(/^```/,'').replace(/```$/,'').trim();
+  try{ return JSON.parse(s); }catch(e){ const m=s.match(/[\[{][\s\S]*[\]}]/); if(m){ try{ return JSON.parse(m[0]); }catch(e2){} } return null; } }
+
+function ctxText(c){
+  const prod=(c?.productos||[]).filter(Boolean);
+  return `Empresa: ${c?.name||'s/d'}. Sector: ${c?.sector||'s/d'}.
+Descripción: ${c?.contexto||'s/d'}.
+Productos/servicios: ${prod.length?prod.join(' · '):'s/d'}.
+Propuesta de valor: ${c?.propuesta||'s/d'}.
+Segmentos B2B: ${(c?.segmentos||[]).join(', ')||'s/d'}.`;
+}
+function diagText(m, segs){
+  const seg = segs.map(s=>`${s.name}: NPS ${s.nps} (n=${s.n})`).join(' · ');
+  return `NPS global: ${m.nps} (${bandName(npsBand(m.nps))}). Promotores ${m.proP}% · Pasivos ${m.pasP}% · Detractores ${m.detP}%. Base: ${m.n} respuestas. Score promedio 0-10: ${m.avg}.
+NPS por segmento: ${seg||'s/d'}.`;
+}
+
+/* ============================ STYLE INJECTION ============================ */
+function GlobalStyle(){
+  useEffect(()=>{
+    const id='promotia-fonts';
+    if(!document.getElementById(id)){
+      const l=document.createElement('link'); l.id=id; l.rel='stylesheet';
+      l.href='https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600;700&family=Archivo:wght@400;500;600;700&display=swap';
+      document.head.appendChild(l);
+    }
+  },[]);
+  return <style>{`
+    .promotia *{box-sizing:border-box}
+    .promotia{font-family:${BODY};color:${C.tx};-webkit-font-smoothing:antialiased}
+    .promotia h1,.promotia h2,.promotia h3,.promotia .disp{font-family:${DISP};letter-spacing:-.02em}
+    .promotia ::-webkit-scrollbar{width:10px;height:10px}
+    .promotia ::-webkit-scrollbar-thumb{background:${C.line};border-radius:20px;border:3px solid #fff}
+    .promotia ::-webkit-scrollbar-thumb:hover{background:${C.tx3}}
+    @keyframes fu{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    .fu{animation:fu .45s cubic-bezier(.2,.7,.3,1) both}
+    .promotia button{font-family:inherit}
+    .promotia input,.promotia textarea,.promotia select{font-family:inherit}
+    .promotia input:focus,.promotia textarea:focus,.promotia select:focus{outline:none;border-color:${C.primary}!important;box-shadow:0 0 0 3px ${C.lila3}}
+    .lift{transition:transform .15s ease, box-shadow .15s ease}
+    .lift:hover{transform:translateY(-2px);box-shadow:0 12px 28px -12px rgba(115,1,123,.35)}
+    .promotia a{color:${C.primary}}
+  `}</style>;
+}
+
+/* ============================ ISOLOGO ============================ */
+function Mark({size=34}){
+  return (
+    <svg width={size} height={size} viewBox="0 0 48 48" fill="none" aria-label="PromotIA">
+      <defs>
+        <linearGradient id="pg" x1="0" y1="48" x2="48" y2="0">
+          <stop offset="0" stopColor="#52015A"/><stop offset="0.5" stopColor="#A8108F"/><stop offset="1" stopColor="#E40993"/>
+        </linearGradient>
+      </defs>
+      <rect x="1.5" y="1.5" width="45" height="45" rx="13" fill="url(#pg)"/>
+      {/* speech/heart promoter mark */}
+      <path d="M14 16h20a3 3 0 0 1 3 3v9a3 3 0 0 1-3 3H22l-6 5v-5h-2a3 3 0 0 1-3-3v-9a3 3 0 0 1 3-3Z" fill="#fff" opacity=".94"/>
+      <path d="M24 28.5l-4.2-4c-1.2-1.15-1.1-3 .2-3.9 1.05-.72 2.45-.45 3.25.5l.75.9.75-.9c.8-.95 2.2-1.22 3.25-.5 1.3.9 1.4 2.75.2 3.9L24 28.5Z" fill="#E40993"/>
+    </svg>
+  );
+}
+function Wordmark({size=20, sub=true, light=false}){
+  return (
+    <div style={{display:'flex',alignItems:'center',gap:10}}>
+      <Mark size={size*1.7}/>
+      <div style={{lineHeight:1}}>
+        <div className="disp" style={{fontWeight:700,fontSize:size,color:light?'#fff':C.tx}}>
+          Promot<span style={{color:light?'#F46BC2':C.magenta}}>IA</span>
+        </div>
+        {sub && <div style={{fontSize:size*0.42,color:light?'rgba(255,255,255,.8)':C.tx3,fontWeight:600,letterSpacing:.3,marginTop:2}}>NPS B2B · by Delenio People</div>}
+      </div>
+    </div>
+  );
+}
+
+/* ============================ UI ATOMS ============================ */
+function Card({children,style,className=''}){ return <div className={'lift '+className} style={{background:'#fff',border:`1px solid ${C.line}`,borderRadius:18,boxShadow:'0 1px 2px rgba(26,10,28,.04)',...style}}>{children}</div>; }
+function Section({title,hint,icon:Icon,right,style}){ return (
+  <div style={{display:'flex',alignItems:'center',gap:10,margin:'26px 0 14px',...style}}>
+    {Icon && <span style={{display:'grid',placeItems:'center',width:30,height:30,borderRadius:9,background:C.lila3,color:C.primary}}><Icon size={16}/></span>}
+    <div>
+      <h2 style={{fontSize:18,fontWeight:700,margin:0}}>{title}</h2>
+      {hint && <div style={{fontSize:12.5,color:C.tx3,marginTop:2}}>{hint}</div>}
+    </div>
+    {right && <div style={{marginLeft:'auto'}}>{right}</div>}
+  </div>
+); }
+function Pill({band,children,small}){ return <span style={{display:'inline-flex',alignItems:'center',gap:5,background:bandBg(band),color:bandCol(band),fontWeight:700,fontSize:small?10.5:11.5,padding:small?'2px 8px':'3px 10px',borderRadius:20}}>{children||bandName(band)}</span>; }
+function Tag({children,tone='neutral',style}){ const t={neutral:[C.surface,C.tx2],brand:[C.lila3,C.primary],warn:[C.mejorarBg,C.mejorar],bad:[C.criticoBg,C.critico],good:[C.excBg,C.exc]}[tone]; return <span style={{background:t[0],color:t[1],fontWeight:600,fontSize:11,padding:'3px 9px',borderRadius:8,...style}}>{children}</span>; }
+function Btn({children,onClick,variant='primary',size='md',icon:Icon,disabled,style}){
+  const base={display:'inline-flex',alignItems:'center',justifyContent:'center',gap:7,fontWeight:700,borderRadius:11,cursor:disabled?'not-allowed':'pointer',border:'1px solid transparent',transition:'all .15s',opacity:disabled?.55:1,whiteSpace:'nowrap'};
+  const sz={sm:{fontSize:12.5,padding:'7px 12px'},md:{fontSize:13.5,padding:'10px 16px'},lg:{fontSize:15,padding:'13px 22px'}}[size];
+  const v={
+    primary:{background:C.grad,color:'#fff',boxShadow:'0 8px 18px -8px rgba(115,1,123,.6)'},
+    ghost:{background:'#fff',color:C.tx2,border:`1px solid ${C.line}`},
+    soft:{background:C.lila3,color:C.primary},
+    danger:{background:C.criticoBg,color:C.critico,border:`1px solid ${C.critico}33`},
+    dark:{background:C.tx,color:'#fff'},
+  }[variant];
+  return <button onClick={disabled?undefined:onClick} style={{...base,...sz,...v,...style}}>{Icon&&<Icon size={size==='sm'?15:17}/>}{children}</button>;
+}
+function IconBtn({icon:Icon,onClick,tone,title}){ const col=tone==='danger'?C.critico:C.tx2; return <button title={title} onClick={onClick} style={{display:'grid',placeItems:'center',width:32,height:32,borderRadius:9,background:'#fff',border:`1px solid ${C.line}`,color:col,cursor:'pointer'}}><Icon size={15}/></button>; }
+function Field({label,children,hint}){ return <label style={{display:'block',marginBottom:14}}><div style={{fontSize:12,fontWeight:700,color:C.tx2,marginBottom:6}}>{label}</div>{children}{hint&&<div style={{fontSize:11,color:C.tx3,marginTop:4}}>{hint}</div>}</label>; }
+const inputCss = {width:'100%',background:'#fff',border:`1px solid ${C.line}`,borderRadius:11,padding:'10px 13px',fontSize:13.5,color:C.tx};
+function Input(p){ return <input {...p} style={{...inputCss,...(p.style||{})}}/>; }
+function Textarea(p){ return <textarea {...p} style={{...inputCss,minHeight:90,resize:'vertical',lineHeight:1.5,...(p.style||{})}}/>; }
+function Select({value,onChange,children,style}){ return <select value={value} onChange={onChange} style={{...inputCss,appearance:'none',cursor:'pointer',backgroundImage:`url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='%23A99BB0' stroke-width='2'><path d='M4 6l4 4 4-4'/></svg>")`,backgroundRepeat:'no-repeat',backgroundPosition:'right 12px center',paddingRight:34,...style}}>{children}</select>; }
+function Modal({open,onClose,title,children,width=560,icon:Icon}){
+  if(!open) return null;
+  return (
+    <div onClick={onClose} style={{position:'fixed',inset:0,zIndex:60,background:'rgba(26,10,28,.42)',backdropFilter:'blur(3px)',display:'grid',placeItems:'center',padding:20}}>
+      <div className="fu" onClick={e=>e.stopPropagation()} style={{background:'#fff',borderRadius:20,width:'100%',maxWidth:width,maxHeight:'88vh',overflow:'auto',boxShadow:'0 30px 70px -20px rgba(115,1,123,.5)'}}>
+        <div style={{position:'sticky',top:0,background:'#fff',display:'flex',alignItems:'center',gap:10,padding:'18px 22px',borderBottom:`1px solid ${C.line}`,zIndex:2}}>
+          {Icon&&<span style={{display:'grid',placeItems:'center',width:32,height:32,borderRadius:9,background:C.lila3,color:C.primary}}><Icon size={17}/></span>}
+          <h3 style={{margin:0,fontSize:17,fontWeight:700}}>{title}</h3>
+          <button onClick={onClose} style={{marginLeft:'auto',width:32,height:32,borderRadius:9,border:`1px solid ${C.line}`,background:'#fff',cursor:'pointer',display:'grid',placeItems:'center',color:C.tx2}}><X size={16}/></button>
+        </div>
+        <div style={{padding:22}}>{children}</div>
+      </div>
+    </div>
+  );
+}
+function Spinner({size=16,color='#fff'}){ return <span style={{display:'inline-block',width:size,height:size,border:`2px solid ${color}55`,borderTopColor:color,borderRadius:'50%',animation:'spin .7s linear infinite'}}/>; }
+function Empty({icon:Icon,title,sub,action}){ return (
+  <div style={{textAlign:'center',padding:'46px 20px',color:C.tx3}}>
+    <div style={{display:'grid',placeItems:'center',width:54,height:54,borderRadius:16,background:C.surface,margin:'0 auto 14px',color:C.tx3}}>{Icon&&<Icon size={24}/>}</div>
+    <div style={{fontWeight:700,color:C.tx2,fontSize:15}}>{title}</div>
+    {sub&&<div style={{fontSize:13,marginTop:4,maxWidth:380,marginLeft:'auto',marginRight:'auto'}}>{sub}</div>}
+    {action&&<div style={{marginTop:16}}>{action}</div>}
+  </div>
+); }
+function Kpi({title,value,suffix,delta,sub,icon:Icon,tone='brand'}){
+  const grad = tone==='ink'?'linear-gradient(125deg,#1A0A1C,#3a2440)':C.gradHero;
+  return (
+    <div className="lift" style={{position:'relative',overflow:'hidden',borderRadius:18,padding:'18px 18px 16px',background:grad,color:'#fff',boxShadow:'0 14px 30px -16px rgba(115,1,123,.55)'}}>
+      <div style={{position:'absolute',right:-22,top:-22,width:96,height:96,borderRadius:'50%',background:'rgba(255,255,255,.12)'}}/>
+      <div style={{display:'flex',alignItems:'center',gap:8,fontSize:12.5,fontWeight:600,opacity:.92}}>{Icon&&<Icon size={15}/>}{title}</div>
+      <div style={{display:'flex',alignItems:'flex-end',gap:6,marginTop:10}}>
+        <div className="disp" style={{fontSize:34,fontWeight:700,lineHeight:1}}>{value}{suffix&&<span style={{fontSize:18,opacity:.85}}>{suffix}</span>}</div>
+        {delta!=null && <span style={{display:'inline-flex',alignItems:'center',gap:2,fontSize:12,fontWeight:700,marginBottom:5,background:'rgba(255,255,255,.18)',padding:'2px 7px',borderRadius:20}}>{delta>=0?<TrendingUp size={12}/>:<TrendingDown size={12}/>}{delta>=0?'+':''}{delta}</span>}
+      </div>
+      {sub && <div style={{fontSize:11.5,opacity:.85,marginTop:7}}>{sub}</div>}
+    </div>
+  );
+}
+
+/* NPS GAUGE — semicircular -100..+100 */
+function NpsGauge({score, n}){
+  if(score==null) return <div style={{color:C.tx3,fontSize:13}}>Sin datos.</div>;
+  const b=npsBand(score); const col=bandCol(b);
+  const frac=(score+100)/200; const ang=-90 + frac*180; const R=84, cx=110, cy=104;
+  const a0=Math.PI, a1=0; // 180deg arc
+  const pt=(a,r)=>[cx+r*Math.cos(a), cy-r*Math.sin(a)];
+  const arc=(from,to,r)=>{ const [x0,y0]=pt(from,r),[x1,y1]=pt(to,r); const large=(to-from)>Math.PI?1:0; return `M${x0} ${y0} A${r} ${r} 0 ${large} 1 ${x1} ${y1}`; };
+  const needle=pt((ang)*Math.PI/180+0, 0); // not used
+  const nA=(180 - frac*180)*Math.PI/180;
+  const [nx,ny]=pt(nA,R-6);
+  return (
+    <div style={{textAlign:'center'}}>
+      <svg width="220" height="124" viewBox="0 0 220 124">
+        <path d={arc(a0,a1,R)} fill="none" stroke={C.line2} strokeWidth="16" strokeLinecap="round"/>
+        <path d={arc(a0, a0-(frac*Math.PI), R)} fill="none" stroke={col} strokeWidth="16" strokeLinecap="round"/>
+        <line x1={cx} y1={cy} x2={nx} y2={ny} stroke={C.tx} strokeWidth="3" strokeLinecap="round"/>
+        <circle cx={cx} cy={cy} r="6" fill={C.tx}/>
+        <text x="26" y="120" fontSize="10" fill={C.tx3}>-100</text>
+        <text x="180" y="120" fontSize="10" fill={C.tx3}>+100</text>
+      </svg>
+      <div style={{marginTop:-8}}>
+        <div className="disp" style={{fontSize:42,fontWeight:700,lineHeight:1,color:col}}>{score>0?'+':''}{score}</div>
+        <div style={{marginTop:6}}><Pill band={b}/></div>
+        <div style={{fontSize:11.5,color:C.tx3,marginTop:6}}>{n} respuestas</div>
+      </div>
+    </div>
+  );
+}
+
+/* NPS distribution bar */
+function NpsDist({m}){
+  if(!m) return null;
+  const segs=[['Detractores',m.detP,C.detractor,ThumbsDown],['Pasivos',m.pasP,C.pasivo,Minus],['Promotores',m.proP,C.promotor,ThumbsUp]];
+  return <div>
+    <div style={{display:'flex',height:14,borderRadius:20,overflow:'hidden'}}>
+      {segs.map(([n,p,c])=> p>0 && <div key={n} title={`${n}: ${p}%`} style={{width:p+'%',background:c}}/>)}
+    </div>
+    <div style={{display:'flex',gap:16,marginTop:11,flexWrap:'wrap'}}>
+      {segs.map(([n,p,c,Ic])=> <span key={n} style={{display:'inline-flex',alignItems:'center',gap:6,fontSize:12,color:C.tx2}}><span style={{display:'grid',placeItems:'center',width:18,height:18,borderRadius:6,background:c+'22',color:c}}><Ic size={11}/></span>{n} <b style={{color:C.tx}}>{p}%</b></span>)}
+    </div>
+  </div>;
+}
+
+function SegBar({label,nps,n}){
+  const b=npsBand(nps); const frac=(nps+100)/200;
+  return <div style={{padding:'9px 4px'}}>
+    <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:6}}>
+      <span style={{fontSize:13,fontWeight:600,color:C.tx,flex:1}}>{label}</span>
+      <span style={{fontSize:10.5,color:C.tx3}}>{n} resp.</span>
+      <span style={{fontSize:13,fontWeight:700,color:bandCol(b)}}>{nps>0?'+':''}{nps}</span>
+    </div>
+    <div style={{position:'relative',height:8,borderRadius:20,background:C.line2,overflow:'hidden'}}>
+      <div style={{position:'absolute',left:'50%',top:0,bottom:0,width:1,background:C.tx3,opacity:.4}}/>
+      <div style={{height:'100%',width:Math.abs(frac-0.5)*100+'%',marginLeft:nps>=0?'50%':(frac*100)+'%',borderRadius:20,background:`linear-gradient(90deg,${bandCol(b)}cc,${bandCol(b)})`,transition:'width .6s'}}/>
+    </div>
+  </div>;
+}
+
+function Tip({active,payload,label}){ if(!active||!payload||!payload.length) return null; return (
+  <div style={{background:'#fff',border:`1px solid ${C.line}`,borderRadius:12,padding:'9px 12px',boxShadow:'0 8px 24px -8px rgba(115,1,123,.3)',fontSize:12}}>
+    <div style={{fontWeight:700,marginBottom:4,color:C.tx}}>{label}</div>
+    {payload.map((p,i)=> p.value!=null && <div key={i} style={{display:'flex',alignItems:'center',gap:6,color:C.tx2}}><span style={{width:9,height:9,borderRadius:3,background:p.color||p.stroke}}/>{p.name}: <b>{p.value>0&&p.name==='NPS'?'+':''}{p.value}</b></div>)}
+  </div>
+); }
+function AILoader({text='Analizando con IA…'}){ return (
+  <div style={{display:'flex',alignItems:'center',gap:12,padding:'20px 18px',background:C.surface,borderRadius:16}}>
+    <Spinner size={18} color={C.primary}/>
+    <div><div style={{fontWeight:700,color:C.tx}}>{text}</div><div style={{fontSize:12,color:C.tx3}}>Cruzando NPS, comentarios y tu contexto.</div></div>
+  </div>
+); }
+function AIErr({onRetry}){ return <div style={{display:'flex',alignItems:'center',gap:10,padding:'12px 14px',background:C.criticoBg,color:C.critico,borderRadius:12,fontSize:13}}><AlertTriangle size={16}/> No se pudo generar. {onRetry&&<button onClick={onRetry} style={{marginLeft:'auto',background:'#fff',border:`1px solid ${C.critico}44`,color:C.critico,borderRadius:8,padding:'5px 10px',fontWeight:700,cursor:'pointer'}}>Reintentar</button>}</div>; }
+
+/* shared */
+function YearTabs({years,year,setYear}){ if(years.length<2) return null; return (
+  <div style={{display:'inline-flex',background:C.surface,borderRadius:11,padding:3,gap:3}}>
+    {years.map(y=> <button key={y} onClick={()=>setYear(y)} style={{padding:'6px 14px',borderRadius:8,border:'none',cursor:'pointer',fontWeight:700,fontSize:12.5,background:String(year)===String(y)?'#fff':'transparent',color:String(year)===String(y)?C.primary:C.tx3,boxShadow:String(year)===String(y)?'0 1px 3px rgba(0,0,0,.08)':'none'}}>{y}</button>)}
+  </div>
+); }
+
+/* ============================================================ ADMIN: CLIENTES ============================================================ */
+function AdminClientes({db,update,goClient}){
+  const [edit,setEdit]=useState(null); const [del,setDel]=useState(null);
+  const blank={id:'',name:'',code:'',web:'',sector:'',contexto:'',productos:[''],propuesta:'',segmentos:[...SEGMENTOS],notas:''};
+  const save=()=>{ const c={...edit, productos:(edit.productos||[]).map(s=>s.trim()).filter(Boolean)}; if(!c.name.trim())return;
+    update(d=>{ if(c.id){ const i=d.clients.findIndex(x=>x.id===c.id); d.clients[i]={...c}; }
+      else { const id=uid('c'); d.clients.push({...c,id,code:c.code||c.name.slice(0,3).toUpperCase()+'-'+Math.random().toString(36).slice(2,5).toUpperCase()}); d.data[id]={months:[]}; } });
+    setEdit(null); };
+  const setProd=(i,v)=>setEdit(e=>{ const p=[...(e.productos||[])]; p[i]=v; return {...e,productos:p}; });
+  return <div>
+    <Section title="Clientes" hint={`${db.clients.length} empresas · cuentas, contexto comercial y catálogo`} icon={Building2}
+      right={<Btn icon={Plus} onClick={()=>setEdit({...blank})}>Nuevo cliente</Btn>}/>
+    <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(330px,1fr))',gap:14}}>
+      {db.clients.map(c=>{ const s=clientStats(db,c.id); const b=npsBand(s.nps); return (
+        <Card key={c.id} className="fu" style={{padding:18}}>
+          <div style={{display:'flex',alignItems:'flex-start',gap:10}}>
+            <div style={{display:'grid',placeItems:'center',width:42,height:42,borderRadius:12,background:C.grad,color:'#fff',fontWeight:700,fontFamily:DISP,fontSize:18}}>{c.name[0]}</div>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontWeight:700,fontSize:15.5}} className="disp">{c.name}</div>
+              <div style={{fontSize:11.5,color:C.tx3}}>{c.code}{c.sector?` · ${c.sector}`:''}</div>
+            </div>
+            <IconBtn icon={Pencil} title="Editar" onClick={()=>setEdit({...c,productos:c.productos?.length?c.productos:['']})}/>
+            <IconBtn icon={Trash2} title="Eliminar" tone="danger" onClick={()=>setDel(c)}/>
+          </div>
+          {c.contexto&&<div style={{fontSize:12.5,color:C.tx2,marginTop:11,lineHeight:1.5,display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical',overflow:'hidden'}}>{c.contexto}</div>}
+          <div style={{display:'flex',gap:6,flexWrap:'wrap',marginTop:12}}>
+            <Tag tone="brand">{s.months} meses</Tag><Tag>{s.resp} respuestas</Tag>
+            {s.nps!=null&&<Tag tone={b==='exc'||b==='bueno'?'good':b==='mejorar'?'warn':'bad'}>NPS {s.nps>0?'+':''}{s.nps}</Tag>}
+          </div>
+          <div style={{display:'flex',gap:8,marginTop:14}}>
+            <Btn size="sm" variant="soft" icon={Eye} onClick={()=>goClient(c.id)} style={{flex:1}}>Ver portal</Btn>
+          </div>
+        </Card>
+      ); })}
+    </div>
+
+    <Modal open={!!edit} onClose={()=>setEdit(null)} title={edit?.id?'Editar cliente':'Nuevo cliente'} icon={Building2} width={620}>
+      {edit&&<div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+          <Field label="Nombre de la empresa"><Input value={edit.name} onChange={e=>setEdit({...edit,name:e.target.value})} placeholder="Ej. Nimbus Logística"/></Field>
+          <Field label="Código"><Input value={edit.code} onChange={e=>setEdit({...edit,code:e.target.value})} placeholder="Auto si lo dejás vacío"/></Field>
+        </div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+          <Field label="Sector"><Input value={edit.sector} onChange={e=>setEdit({...edit,sector:e.target.value})} placeholder="Ej. Logística B2B"/></Field>
+          <Field label="Sitio web"><Input value={edit.web} onChange={e=>setEdit({...edit,web:e.target.value})} placeholder="www.empresa.com"/></Field>
+        </div>
+        <Field label="Descripción / contexto"><Textarea value={edit.contexto} onChange={e=>setEdit({...edit,contexto:e.target.value})} placeholder="A qué se dedica, a qué clientes B2B atiende, prioridades del CEO."/></Field>
+        <Field label="Productos / servicios" hint="Alimentan el análisis de comentarios y el plan de acción con IA.">
+          {(edit.productos||['']).map((p,i)=><div key={i} style={{display:'flex',gap:8,alignItems:'center',marginBottom:7}}>
+            <span style={{width:6,height:6,borderRadius:'50%',background:C.magenta,flexShrink:0}}/>
+            <Input value={p} onChange={e=>setProd(i,e.target.value)} placeholder={`Producto / servicio ${i+1}`} style={{padding:'8px 11px',fontSize:13}}/>
+            <IconBtn icon={X} onClick={()=>setEdit(e=>({...e,productos:e.productos.filter((_,j)=>j!==i)}))}/>
+          </div>)}
+          <button onClick={()=>setEdit(e=>({...e,productos:[...(e.productos||[]),'']}))} style={{display:'inline-flex',alignItems:'center',gap:5,background:'none',border:'none',color:C.primary,fontWeight:700,fontSize:12.5,cursor:'pointer',padding:'4px 0'}}><Plus size={14}/>Agregar producto</button>
+        </Field>
+        <Field label="Propuesta de valor"><Textarea value={edit.propuesta} onChange={e=>setEdit({...edit,propuesta:e.target.value})} style={{minHeight:60}}/></Field>
+        <Field label="Notas internas (Delenio)"><Textarea value={edit.notas} onChange={e=>setEdit({...edit,notas:e.target.value})} style={{minHeight:60}}/></Field>
+        <div style={{display:'flex',justifyContent:'flex-end',gap:8,marginTop:6}}><Btn variant="ghost" onClick={()=>setEdit(null)}>Cancelar</Btn><Btn icon={Check} onClick={save}>Guardar</Btn></div>
+      </div>}
+    </Modal>
+
+    <Modal open={!!del} onClose={()=>setDel(null)} title="Eliminar cliente" icon={Trash2} width={440}>
+      {del&&<div>
+        <p style={{fontSize:13.5,color:C.tx2,lineHeight:1.5,margin:'0 0 18px'}}>Vas a eliminar <b>{del.name}</b> y todas sus respuestas NPS. Esta acción no se puede deshacer.</p>
+        <div style={{display:'flex',justifyContent:'flex-end',gap:8}}><Btn variant="ghost" onClick={()=>setDel(null)}>Cancelar</Btn><Btn variant="danger" icon={Trash2} onClick={()=>{update(d=>{d.clients=d.clients.filter(x=>x.id!==del.id); delete d.data[del.id];}); setDel(null);}}>Eliminar</Btn></div>
+      </div>}
+    </Modal>
+  </div>;
+}
+
+/* ============================================================ ADMIN: CARGA NPS ============================================================ */
+function AdminCarga({db,update}){
+  const [cid,setCid]=useState(db.clients[0]?.id||'');
+  const now=new Date();
+  const [year,setYear]=useState(now.getFullYear()); const [month,setMonth]=useState(now.getMonth()+1);
+  const [mode,setMode]=useState('excel'); const [toast,setToast]=useState(null);
+  const cd=db.data[cid]; const c=db.clients.find(x=>x.id===cid);
+  const mKey=`${year}-${String(month).padStart(2,'0')}`;
+  const existing=cd?.months?.find(m=>m.month===mKey);
+  const flash=t=>{ setToast(t); setTimeout(()=>setToast(null),3200); };
+
+  function downloadTemplate(){
+    const cols=['Segmento','Sector','Región','NPS (0-10)','Comentario / motivo'];
+    const ws=XLSX.utils.aoa_to_sheet([cols, ['Enterprise','Retail','AMBA','','']]);
+    ws['!cols']=cols.map(c=>({wch:Math.max(14,c.length+4)}));
+    const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'NPS');
+    const info=XLSX.utils.aoa_to_sheet([['PromotIA · Plantilla de carga NPS'],['Cliente',c?.name||''],['Período',`${MESLONG[month]} ${year}`],[''],
+      ['Pregunta única (metodología NPS)','¿Qué tan probable es que recomiendes a la empresa a un colega o socio? (0 a 10)'],
+      ['Clasificación','Detractores 0-6 · Pasivos 7-8 · Promotores 9-10'],['Comentario','Motivo principal del puntaje (texto libre, opcional pero recomendado)'],
+      ['Segmento / Sector / Región','Opcionales — sirven para segmentar el NPS. No agregan otra pregunta.'],
+      ['','Una fila por cliente B2B encuestado. No cambies los encabezados.']]);
+    XLSX.utils.book_append_sheet(wb,info,'Instrucciones');
+    XLSX.writeFile(wb, `PromotIA_${c?.code||'cliente'}_${mKey}.xlsx`);
+  }
+  function ingest(rows){
+    const sample=rows[0]||{};
+    const find=t=>Object.keys(sample).find(h=>norm(h).includes(t));
+    const npsKey=find('nps')||find('puntaje')||find('recomend');
+    const comKey=find('coment')||find('motivo');
+    const segKey=find('segmento'), secKey=find('sector'), regKey=find('region');
+    const responses=[];
+    rows.forEach(row=>{
+      const v=npsKey?row[npsKey]:''; if(v===''||v==null||isNaN(+v)) return;
+      const e=Math.max(0,Math.min(10,Math.round(+v)));
+      const r={e}; if(comKey&&row[comKey])r.c=String(row[comKey]).trim();
+      const d={}; if(segKey&&row[segKey])d.Segmento=String(row[segKey]).trim(); if(secKey&&row[secKey])d.Sector=String(row[secKey]).trim(); if(regKey&&row[regKey])d['Región']=String(row[regKey]).trim();
+      if(Object.keys(d).length)r.d=d;
+      responses.push(r);
+    });
+    if(!responses.length){ flash({bad:true,msg:'No se detectaron puntajes NPS válidos. ¿Usaste la plantilla?'}); return; }
+    update(d=>{ const cc=d.data[cid]; if(!cc.months)cc.months=[]; let mo=cc.months.find(m=>m.month===mKey);
+      if(mo){ mo.responses.push(...responses); mo.sent=(mo.sent||0)+responses.length; } else { cc.months.push({month:mKey,sent:responses.length,responses}); } });
+    flash({bad:false,msg:`${responses.length} respuestas NPS cargadas en ${MESLONG[month]} ${year}.`});
+  }
+  function onFile(ev){ const f=ev.target.files?.[0]; if(!f)return; const rd=new FileReader();
+    rd.onload=e=>{ try{ const wb=XLSX.read(e.target.result,{type:'array'}); const ws=wb.Sheets['NPS']||wb.Sheets[wb.SheetNames[0]]; const rows=XLSX.utils.sheet_to_json(ws,{defval:''}); ingest(rows); }catch(err){ flash({bad:true,msg:'Error al leer el archivo.'}); } };
+    rd.readAsArrayBuffer(f); ev.target.value=''; }
+
+  return <div>
+    <Section title="Carga de NPS" hint="Importá la medición del mes por Excel o cargá respuestas a mano" icon={Upload}/>
+    <Card style={{padding:18}}>
+      <div style={{display:'grid',gridTemplateColumns:'2fr 1fr 1fr',gap:12}}>
+        <Field label="Cliente"><Select value={cid} onChange={e=>setCid(e.target.value)}>{db.clients.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</Select></Field>
+        <Field label="Mes"><Select value={month} onChange={e=>setMonth(+e.target.value)}>{Array.from({length:12},(_,i)=>i+1).map(m=><option key={m} value={m}>{MESLONG[m]}</option>)}</Select></Field>
+        <Field label="Año"><Select value={year} onChange={e=>setYear(+e.target.value)}>{[2024,2025,2026].map(y=><option key={y} value={y}>{y}</option>)}</Select></Field>
+      </div>
+      <div style={{background:C.surface,borderRadius:14,padding:'13px 15px',display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
+        <CalendarDays size={16} style={{color:C.primary}}/>
+        <span style={{fontSize:12.5,color:C.tx2}}>Métrica del mes:</span>
+        <Tag tone="brand">NPS (1 pregunta · 0-10)</Tag><Tag>Comentario abierto</Tag><Tag>Segmento · Sector · Región (opcional)</Tag>
+        {existing&&<Tag tone="neutral" style={{marginLeft:'auto'}}>{existing.responses.length} ya cargadas</Tag>}
+      </div>
+    </Card>
+
+    <div style={{display:'flex',gap:8,margin:'18px 0 14px'}}>
+      <Btn variant={mode==='excel'?'primary':'ghost'} size="sm" icon={FileSpreadsheet} onClick={()=>setMode('excel')}>Importar Excel</Btn>
+      <Btn variant={mode==='manual'?'primary':'ghost'} size="sm" icon={Pencil} onClick={()=>setMode('manual')}>Carga manual</Btn>
+    </div>
+
+    {toast&&<div className="fu" style={{display:'flex',alignItems:'center',gap:9,padding:'11px 14px',borderRadius:12,marginBottom:14,fontSize:13,fontWeight:600,background:toast.bad?C.criticoBg:C.excBg,color:toast.bad?C.critico:C.exc}}>{toast.bad?<AlertTriangle size={16}/>:<Check size={16}/>}{toast.msg}</div>}
+
+    {mode==='excel'? (
+      <Card style={{padding:24,textAlign:'center'}}>
+        <div style={{display:'grid',placeItems:'center',width:56,height:56,borderRadius:16,background:C.lila3,color:C.primary,margin:'0 auto 14px'}}><FileSpreadsheet size={26}/></div>
+        <div style={{fontWeight:700,fontSize:16}} className="disp">Importá respuestas por Excel</div>
+        <div style={{fontSize:13,color:C.tx2,maxWidth:460,margin:'8px auto 20px',lineHeight:1.5}}>1) Descargá la plantilla · 2) Una fila por cliente B2B encuestado con su puntaje 0-10 y su comentario · 3) Subila acá. Las columnas se mapean solas.</div>
+        <div style={{display:'flex',gap:10,justifyContent:'center',flexWrap:'wrap'}}>
+          <Btn variant="ghost" icon={Download} onClick={downloadTemplate}>Descargar plantilla</Btn>
+          <label><Btn icon={Upload} onClick={()=>document.getElementById('npsfile').click()}>Subir archivo</Btn><input id="npsfile" type="file" accept=".xlsx,.xls,.csv" onChange={onFile} style={{display:'none'}}/></label>
+        </div>
+      </Card>
+    ) : <ManualEntry onAdd={(r)=>{ update(d=>{ const cc=d.data[cid]; if(!cc.months)cc.months=[]; let mo=cc.months.find(m=>m.month===mKey); if(mo){mo.responses.push(r); mo.sent=(mo.sent||0)+1;} else {cc.months.push({month:mKey,sent:1,responses:[r]});} }); flash({bad:false,msg:'Respuesta agregada.'}); }}/>}
+  </div>;
+}
+
+function ManualEntry({onAdd}){
+  const [e,setE]=useState(null); const [c,setC]=useState(''); const [seg,setSeg]=useState(''); const [sec,setSec]=useState(''); const [reg,setReg]=useState('');
+  const add=()=>{ if(e==null)return; const r={e}; if(c)r.c=c; const d={}; if(seg)d.Segmento=seg; if(sec)d.Sector=sec; if(reg)d['Región']=reg; if(Object.keys(d).length)r.d=d; onAdd(r); setE(null); setC(''); };
+  const catOf=v=>v>=9?'Promotor':v>=7?'Pasivo':'Detractor';
+  const catCol=v=>v>=9?C.promotor:v>=7?C.pasivo:C.detractor;
+  return <Card style={{padding:20}}>
+    <div style={{fontWeight:700,fontSize:14,marginBottom:4}} className="disp">Nueva respuesta NPS</div>
+    <div style={{fontSize:12.5,color:C.tx2,marginBottom:14}}>¿Qué tan probable es que recomiende a la empresa a un colega o socio?</div>
+    <div style={{display:'flex',gap:5,marginBottom:8}}>{Array.from({length:11},(_,v)=>v).map(v=> <button key={v} onClick={()=>setE(v)} style={{flex:1,padding:'12px 0',borderRadius:9,fontWeight:700,fontSize:14,cursor:'pointer',border:`1px solid ${e===v?catCol(v):C.line}`,background:e===v?catCol(v):'#fff',color:e===v?'#fff':C.tx2}}>{v}</button>)}</div>
+    {e!=null&&<div style={{fontSize:12.5,marginBottom:14}}>Clasificación: <b style={{color:catCol(e)}}>{catOf(e)}</b></div>}
+    <Field label="Comentario / motivo del puntaje"><Textarea value={c} onChange={ev=>setC(ev.target.value)} placeholder="Texto libre del cliente B2B (opcional pero recomendado para el análisis con IA)." style={{minHeight:70}}/></Field>
+    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12}}>
+      <Field label="Segmento"><Select value={seg} onChange={ev=>setSeg(ev.target.value)}><option value="">—</option>{SEGMENTOS.map(s=><option key={s}>{s}</option>)}</Select></Field>
+      <Field label="Sector"><Input value={sec} onChange={ev=>setSec(ev.target.value)} placeholder="Opcional"/></Field>
+      <Field label="Región"><Input value={reg} onChange={ev=>setReg(ev.target.value)} placeholder="Opcional"/></Field>
+    </div>
+    <div style={{display:'flex',justifyContent:'flex-end'}}><Btn icon={Plus} onClick={add} disabled={e==null}>Agregar respuesta</Btn></div>
+  </Card>;
+}
+
+/* ============================================================ ADMIN: USUARIOS ============================================================ */
+function AdminUsuarios({db,update}){
+  const [edit,setEdit]=useState(null);
+  const blank={id:'',name:'',email:'',role:'Cliente',clientId:db.clients[0]?.id||'',status:'Activo'};
+  const cname=id=>db.clients.find(c=>c.id===id)?.name||'—';
+  const save=()=>{ const u=edit; if(!u.name.trim()||!u.email.trim())return; update(d=>{ if(u.id){const i=d.users.findIndex(x=>x.id===u.id); d.users[i]={...u};} else d.users.push({...u,id:uid('u')}); }); setEdit(null); };
+  return <div>
+    <Section title="Usuarios y accesos" hint={`${db.users.length} usuarios · quién entra y a qué portal`} icon={ShieldCheck}
+      right={<Btn icon={Plus} onClick={()=>setEdit({...blank})}>Invitar usuario</Btn>}/>
+    <Card style={{padding:0,overflow:'hidden'}}>
+      <table style={{width:'100%',borderCollapse:'collapse',fontSize:13.5}}>
+        <thead><tr style={{background:C.surface,color:C.tx2,fontSize:11.5,textAlign:'left'}}>{['Usuario','Rol','Cliente asignado','Estado',''].map((h,i)=><th key={i} style={{padding:'12px 16px',fontWeight:700}}>{h}</th>)}</tr></thead>
+        <tbody>{db.users.map(u=> <tr key={u.id} style={{borderTop:`1px solid ${C.line}`}}>
+          <td style={{padding:'12px 16px'}}><div style={{display:'flex',alignItems:'center',gap:10}}>
+            <div style={{display:'grid',placeItems:'center',width:34,height:34,borderRadius:10,background:u.role==='Admin'?C.tx:C.grad,color:'#fff',fontWeight:700,fontFamily:DISP}}>{u.name[0]}</div>
+            <div><div style={{fontWeight:600}}>{u.name}</div><div style={{fontSize:11.5,color:C.tx3}}>{u.email}</div></div></div></td>
+          <td style={{padding:'12px 16px'}}><Tag tone={u.role==='Admin'?'neutral':'brand'} style={u.role==='Admin'?{background:'#1A0A1C11',color:C.tx}:{}}>{u.role}</Tag></td>
+          <td style={{padding:'12px 16px',color:C.tx2}}>{u.role==='Admin'?'Todos':cname(u.clientId)}</td>
+          <td style={{padding:'12px 16px'}}><span style={{display:'inline-flex',alignItems:'center',gap:6,fontSize:12,color:u.status==='Activo'?C.exc:C.tx3}}><span style={{width:7,height:7,borderRadius:'50%',background:u.status==='Activo'?C.exc:C.tx3}}/>{u.status}</span></td>
+          <td style={{padding:'12px 16px',textAlign:'right'}}><div style={{display:'inline-flex',gap:6}}><IconBtn icon={Pencil} onClick={()=>setEdit({...u})}/><IconBtn icon={Trash2} tone="danger" onClick={()=>update(d=>{d.users=d.users.filter(x=>x.id!==u.id);})}/></div></td>
+        </tr>)}</tbody>
+      </table>
+    </Card>
+    <Modal open={!!edit} onClose={()=>setEdit(null)} title={edit?.id?'Editar usuario':'Invitar usuario'} icon={ShieldCheck} width={480}>
+      {edit&&<div>
+        <Field label="Nombre"><Input value={edit.name} onChange={e=>setEdit({...edit,name:e.target.value})}/></Field>
+        <Field label="Email"><Input value={edit.email} onChange={e=>setEdit({...edit,email:e.target.value})} placeholder="persona@empresa.com"/></Field>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+          <Field label="Rol"><Select value={edit.role} onChange={e=>setEdit({...edit,role:e.target.value})}><option>Cliente</option><option>Admin</option></Select></Field>
+          <Field label="Estado"><Select value={edit.status} onChange={e=>setEdit({...edit,status:e.target.value})}><option>Activo</option><option>Invitado</option></Select></Field>
+        </div>
+        {edit.role==='Cliente'&&<Field label="Cliente asignado"><Select value={edit.clientId} onChange={e=>setEdit({...edit,clientId:e.target.value})}>{db.clients.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</Select></Field>}
+        <div style={{display:'flex',justifyContent:'flex-end',gap:8,marginTop:6}}><Btn variant="ghost" onClick={()=>setEdit(null)}>Cancelar</Btn><Btn icon={Check} onClick={save}>Guardar</Btn></div>
+      </div>}
+    </Modal>
+  </div>;
+}
+
+/* ============================================================ ADMIN: USO ============================================================ */
+function AdminUso({db}){
+  const rows=db.clients.map(c=>({c,s:clientStats(db,c.id)}));
+  const totResp=rows.reduce((a,r)=>a+r.s.resp,0);
+  const totMonths=rows.reduce((a,r)=>a+r.s.months,0);
+  const activeUsers=db.users.filter(u=>u.status==='Activo').length;
+  const chart=rows.map(r=>({name:r.c.name.split(' ')[0],NPS:r.s.nps}));
+  return <div>
+    <Section title="Uso de la plataforma" hint="Actividad y NPS de cada cliente" icon={Activity}/>
+    <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:14,marginBottom:8}}>
+      <Kpi title="Clientes activos" value={db.clients.length} icon={Building2}/>
+      <Kpi title="Respuestas totales" value={totResp.toLocaleString('es')} icon={MessageSquare} tone="ink"/>
+      <Kpi title="Mediciones cargadas" value={totMonths} icon={CalendarDays}/>
+      <Kpi title="Usuarios activos" value={activeUsers} icon={Users} tone="ink"/>
+    </div>
+    <div style={{display:'grid',gridTemplateColumns:'1.3fr 1fr',gap:14,marginTop:14}}>
+      <Card style={{padding:0,overflow:'hidden'}}>
+        <div style={{padding:'14px 18px',fontWeight:700,fontSize:14,borderBottom:`1px solid ${C.line}`}} className="disp">Detalle por cliente</div>
+        <table style={{width:'100%',borderCollapse:'collapse',fontSize:12.5}}>
+          <thead><tr style={{background:C.surface2,color:C.tx3,fontSize:11,textAlign:'left'}}>{['Cliente','Meses','Resp.','Tasa resp.','NPS','Últ. carga'].map((h,i)=><th key={i} style={{padding:'10px 14px',fontWeight:700}}>{h}</th>)}</tr></thead>
+          <tbody>{rows.map(({c,s})=> <tr key={c.id} style={{borderTop:`1px solid ${C.line}`}}>
+            <td style={{padding:'11px 14px',fontWeight:600}}>{c.name}</td>
+            <td style={{padding:'11px 14px'}}>{s.months}</td>
+            <td style={{padding:'11px 14px'}}>{s.resp}</td>
+            <td style={{padding:'11px 14px'}}>{s.rr!=null?s.rr+'%':'—'}</td>
+            <td style={{padding:'11px 14px'}}>{s.nps!=null?<span style={{fontWeight:700,color:bandCol(npsBand(s.nps))}}>{s.nps>0?'+':''}{s.nps}</span>:'—'}</td>
+            <td style={{padding:'11px 14px',color:C.tx3}}>{s.last?mLabel(s.last):'—'}</td>
+          </tr>)}</tbody>
+        </table>
+      </Card>
+      <Card style={{padding:18}}>
+        <div style={{fontWeight:700,fontSize:14,marginBottom:10}} className="disp">NPS por cliente</div>
+        <ResponsiveContainer width="100%" height={230}>
+          <BarChart data={chart} margin={{top:6,right:6,left:-18,bottom:0}}>
+            <CartesianGrid strokeDasharray="3 3" stroke={C.line2} vertical={false}/>
+            <XAxis dataKey="name" tick={{fontSize:11,fill:C.tx3}} axisLine={false} tickLine={false}/>
+            <YAxis tick={{fontSize:11,fill:C.tx3}} axisLine={false} tickLine={false} domain={[-100,100]}/>
+            <Tooltip content={<Tip/>}/>
+            <ReferenceLine y={0} stroke={C.line}/>
+            <Bar dataKey="NPS" radius={[7,7,0,0]} maxBarSize={54}>{chart.map((e,i)=><Cell key={i} fill={bandCol(npsBand(e.NPS))}/>)}</Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </Card>
+    </div>
+  </div>;
+}
+
+/* ============================================================ ADMIN: CROSS-SELL IA ============================================================ */
+function AdminCrossSell({db}){
+  const [cid,setCid]=useState(db.clients[0]?.id||'');
+  const [res,setRes]=useState({}); const [load,setLoad]=useState(false); const [err,setErr]=useState(false);
+  const c=db.clients.find(x=>x.id===cid); const cd=db.data[cid];
+  const allResp=(cd?.months||[]).flatMap(m=>m.responses);
+  const m=npsOf(allResp); const segs=bySegment(allResp,'Segmento');
+
+  async function run(){ setLoad(true); setErr(false);
+    const byUnit=Object.keys(UNITS).map(u=>`【${u}】\n`+PORTFOLIO.filter(p=>p.u===u).map(p=>`- ${p.k}: ${p.f}`).join('\n')).join('\n\n');
+    const prompt=`Sos analista de negocio senior de Delenio, un ecosistema que sincroniza Estrategia Comercial, Leads, Marketing, Talento y Tecnología para que las PyMEs B2B crezcan con resultados predecibles. A partir del NPS B2B de un cliente, identificá oportunidades de CROSS-SELLING en TODAS las unidades de negocio de Delenio (no solo People).
+
+CLIENTE: ${ctxText(c)}
+Notas internas: ${c.notas||'s/d'}.
+
+DIAGNÓSTICO NPS:
+${diagText(m,segs)}
+
+PORTFOLIO DELENIO POR UNIDAD (servicio → foco):
+${byUnit}
+
+Razoná la causa detrás del NPS y mapeala al servicio que mejor la resuelve, sin importar la unidad. Ejemplos: detractores por soporte/operación → People (Match/Drive) o Growth (proceso); por precio/valor → Reingeniería Comercial (ADN Comercial, esquemas de compensación); por churn/baja recompra → Growth (retención, rendimiento de cartera); por producto/tecnología/lentitud → Innovación (automatización, agentes de IA); por desconocimiento, leads malos o posicionamiento → Marketing.
+Buscá variedad: las oportunidades deberían cubrir más de una unidad de negocio.
+Devolvé SOLO un JSON array (sin markdown) con 4 a 5 objetos ordenados por prioridad:
+[{"unit":"nombre exacto de la unidad","service":"nombre exacto del servicio","priority":"Alta|Media|Baja","signal":"qué dato del NPS lo dispara (breve, con número)","why":"por qué encaja y qué resolvería para este cliente (1-2 frases)"}]`;
+    try{ const t=await callClaude(prompt,1400); const j=parseJSON(t); if(!j||!Array.isArray(j)) throw new Error('parse'); setRes(p=>({...p,[cid]:j})); }
+    catch(e){ setErr(true); } finally{ setLoad(false); }
+  }
+  const out=res[cid];
+  const pcol=p=>p==='Alta'?C.magenta:p==='Media'?C.mejorar:C.tx3;
+  return <div>
+    <Section title="Cross-sell con IA" hint="La IA cruza el NPS del cliente con todo el portfolio Delenio (5 unidades) y sugiere próximos servicios" icon={Sparkles}/>
+    <Card style={{padding:18,marginBottom:16}}>
+      <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:14}}>
+        {Object.entries(UNITS).map(([u,col])=><span key={u} style={{display:'inline-flex',alignItems:'center',gap:6,fontSize:11,fontWeight:600,color:C.tx2}}><span style={{width:9,height:9,borderRadius:3,background:col}}/>{u}</span>)}
+      </div>
+      <div style={{display:'flex',gap:12,alignItems:'flex-end',flexWrap:'wrap'}}>
+        <div style={{flex:1,minWidth:220}}><Field label="Cliente"><Select value={cid} onChange={e=>setCid(e.target.value)}>{db.clients.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</Select></Field></div>
+        <Btn icon={Wand2} onClick={run} disabled={load||!m} style={{marginBottom:14}}>{load?'Analizando…':'Detectar oportunidades'}</Btn>
+      </div>
+      {!m&&<div style={{fontSize:12.5,color:C.tx3}}>Este cliente todavía no tiene NPS cargado.</div>}
+      {m&&<div style={{display:'flex',gap:8,flexWrap:'wrap',marginTop:4}}>
+        <Tag tone={npsBand(m.nps)==='critico'?'bad':'brand'}>NPS {m.nps>0?'+':''}{m.nps}</Tag><Tag tone="bad">Detractores {m.detP}%</Tag>
+        {segs.slice(0,3).map(s=><Tag key={s.name} tone="neutral">{s.name} {s.nps>0?'+':''}{s.nps}</Tag>)}
+      </div>}
+    </Card>
+    {load&&<AILoader text="Cruzando NPS con tu portfolio…"/>}
+    {err&&<AIErr onRetry={run}/>}
+    {out&&!load&&<div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(330px,1fr))',gap:14}}>
+      {out.map((o,i)=> <Card key={i} className="fu" style={{padding:18,animationDelay:(i*60)+'ms'}}>
+        <div style={{display:'flex',alignItems:'flex-start',gap:9}}>
+          <div style={{display:'grid',placeItems:'center',width:38,height:38,borderRadius:11,background:(UNITS[o.unit]||C.primary)+'1a',color:UNITS[o.unit]||C.primary,flexShrink:0}}><Briefcase size={18}/></div>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontWeight:700,fontSize:15}} className="disp">{o.service}</div>
+            {o.unit&&<span style={{display:'inline-block',marginTop:4,fontSize:10.5,fontWeight:700,color:UNITS[o.unit]||C.tx2,background:(UNITS[o.unit]||C.tx2)+'18',padding:'2px 8px',borderRadius:7}}>{o.unit}</span>}
+          </div>
+          <span style={{fontSize:11,fontWeight:700,color:'#fff',background:pcol(o.priority),padding:'3px 9px',borderRadius:8,flexShrink:0}}>{o.priority}</span>
+        </div>
+        <div style={{display:'flex',gap:7,marginTop:12,padding:'9px 11px',background:C.mejorarBg,borderRadius:10}}>
+          <Sparkles size={14} style={{color:C.mejorar,flexShrink:0,marginTop:1}}/><span style={{fontSize:12,color:C.tx2,lineHeight:1.45}}>{o.signal}</span>
+        </div>
+        <div style={{fontSize:13,color:C.tx2,lineHeight:1.55,marginTop:11}}>{o.why}</div>
+      </Card>)}
+    </div>}
+    {!out&&!load&&!err&&<Empty icon={Sparkles} title="Sin análisis todavía" sub="Elegí un cliente y tocá «Detectar oportunidades» para que la IA proponga servicios según su NPS."/>}
+  </div>;
+}
+
+/* ============================================================ CLIENT: RESUMEN (AÑO ACTUAL) ============================================================ */
+function ClientResumen({db,clientId}){
+  const cd=db.data[clientId]; const years=clientYears(cd); const [year,setYear]=useState(years.slice(-1)[0]);
+  const [seg,setSeg]=useState(''); const [sec,setSec]=useState('');
+  const yResp=yearResp(cd,year); const segs0=demoOptions(yResp,'Segmento'); const secs0=demoOptions(yResp,'Sector');
+  const resp=filterResp(yResp,{'Segmento':seg,'Sector':sec});
+  const m=npsOf(resp);
+  const months=monthsOfYear(cd,year);
+  const trend=months.map(mo=>{ const r=filterResp(mo.responses,{'Segmento':seg,'Sector':sec}); const mm=npsOf(r); return {name:mLabel(mo.month), NPS:mm?mm.nps:null}; });
+  const valid=trend.filter(t=>t.NPS!=null);
+  const delta = valid.length>=2 ? valid[valid.length-1].NPS - valid[valid.length-2].NPS : null;
+  const segData=bySegment(resp,'Segmento');
+  const secData=bySegment(resp,'Sector');
+  const sent=months.reduce((a,mo)=>a+(mo.sent||mo.responses.length),0);
+  const rr = sent? r1(resp.length/sent*100):null;
+
+  if(!yResp.length) return <Empty icon={Inbox} title="Sin NPS para este año" sub="Cuando se carguen respuestas vas a ver acá el tablero de NPS del año en curso."/>;
+  return <div>
+    <Section title={`NPS ${year}`} hint="Tablero del año en curso · metodología NPS estándar" icon={LayoutDashboard}
+      right={<div style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap'}}>
+        <YearTabs years={years} year={year} setYear={setYear}/>
+        <Select value={seg} onChange={e=>setSeg(e.target.value)} style={{width:'auto',padding:'8px 30px 8px 12px',fontSize:12.5}}><option value="">Todos los segmentos</option>{segs0.map(s=><option key={s}>{s}</option>)}</Select>
+        {secs0.length>0&&<Select value={sec} onChange={e=>setSec(e.target.value)} style={{width:'auto',padding:'8px 30px 8px 12px',fontSize:12.5}}><option value="">Todos los sectores</option>{secs0.map(s=><option key={s}>{s}</option>)}</Select>}
+      </div>}/>
+
+    <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:14}}>
+      <Kpi title="NPS del período" value={m?(m.nps>0?'+':'')+m.nps:'—'} delta={delta} icon={Gauge} sub={m?bandName(npsBand(m.nps)):''}/>
+      <Kpi title="Promotores" value={m?m.proP:'—'} suffix="%" icon={ThumbsUp} tone="ink" sub={m?`${m.pro} clientes`:''}/>
+      <Kpi title="Detractores" value={m?m.detP:'—'} suffix="%" icon={ThumbsDown} sub={m?`${m.det} clientes`:''}/>
+      <Kpi title="Respuestas" value={m?m.n:0} icon={MessageSquare} tone="ink" sub={rr!=null?`${rr}% tasa de respuesta`:`${months.length} mes(es)`}/>
+    </div>
+
+    <div style={{display:'grid',gridTemplateColumns:'1fr 1.3fr',gap:14,marginTop:14}}>
+      <Card style={{padding:18}}>
+        <div style={{fontWeight:700,fontSize:14,marginBottom:6}} className="disp">Net Promoter Score</div>
+        <NpsGauge score={m?m.nps:null} n={m?m.n:0}/>
+        <div style={{marginTop:12,paddingTop:14,borderTop:`1px solid ${C.line2}`}}><NpsDist m={m}/></div>
+      </Card>
+      <Card style={{padding:18}}>
+        <div style={{fontWeight:700,fontSize:14,marginBottom:8}} className="disp">Evolución mensual del NPS</div>
+        <ResponsiveContainer width="100%" height={228}>
+          <LineChart data={trend} margin={{top:6,right:10,left:-20,bottom:0}}>
+            <CartesianGrid strokeDasharray="3 3" stroke={C.line2} vertical={false}/>
+            <XAxis dataKey="name" tick={{fontSize:10.5,fill:C.tx3}} axisLine={false} tickLine={false}/>
+            <YAxis tick={{fontSize:10.5,fill:C.tx3}} axisLine={false} tickLine={false} domain={[-100,100]}/>
+            <Tooltip content={<Tip/>}/>
+            <ReferenceLine y={0} stroke={C.line}/>
+            <Line type="monotone" dataKey="NPS" stroke={C.magenta} strokeWidth={2.6} dot={{r:3,fill:C.magenta}} connectNulls/>
+          </LineChart>
+        </ResponsiveContainer>
+      </Card>
+    </div>
+
+    <div style={{display:'grid',gridTemplateColumns:segData.length&&secData.length?'1fr 1fr':'1fr',gap:14,marginTop:14}}>
+      {segData.length>0&&<Card style={{padding:18}}>
+        <div style={{display:'flex',alignItems:'center',gap:8,fontWeight:700,fontSize:14,marginBottom:8,color:C.primary}} className="disp"><Layers size={16}/>NPS por segmento</div>
+        {segData.map(s=><SegBar key={s.name} label={s.name} nps={s.nps} n={s.n}/>)}
+      </Card>}
+      {secData.length>0&&<Card style={{padding:18}}>
+        <div style={{display:'flex',alignItems:'center',gap:8,fontWeight:700,fontSize:14,marginBottom:8,color:C.primary}} className="disp"><Building2 size={16}/>NPS por sector</div>
+        {secData.map(s=><SegBar key={s.name} label={s.name} nps={s.nps} n={s.n}/>)}
+      </Card>}
+    </div>
+  </div>;
+}
+
+/* ============================================================ CLIENT: HISTÓRICO ============================================================ */
+function ClientHistorico({db,clientId}){
+  const cd=db.data[clientId]; const years=clientYears(cd);
+  const allMonths=(cd?.months||[]).slice().sort((a,b)=>a.month<b.month?-1:1);
+  const series=allMonths.map(mo=>{ const m=npsOf(mo.responses); return {name:mLabel(mo.month), NPS:m?m.nps:null, Promotores:m?m.proP:null, Detractores:m?m.detP:null}; });
+  const yearSummary=years.map(y=>{ const r=yearResp(cd,y); const m=npsOf(r); return {year:y, nps:m?m.nps:null, proP:m?m.proP:0, detP:m?m.detP:0, n:r.length}; });
+
+  if(!allMonths.length) return <Empty icon={BarChart3} title="Todavía no hay histórico" sub="A medida que se carguen meses, acá se arma la evolución del NPS."/>;
+  return <div>
+    <Section title="Dashboard histórico" hint="Evolución completa del NPS mes a mes y resumen por año" icon={BarChart3}/>
+    <div style={{display:'grid',gridTemplateColumns:`repeat(${Math.min(yearSummary.length,4)},1fr)`,gap:14,marginBottom:6}}>
+      {yearSummary.map(ys=> <Stat key={ys.year} year={ys.year} ys={ys}/>)}
+    </div>
+    <Card style={{padding:18,marginTop:8}}>
+      <div style={{fontWeight:700,fontSize:14,marginBottom:8}} className="disp">Evolución mensual del NPS</div>
+      <ResponsiveContainer width="100%" height={260}>
+        <LineChart data={series} margin={{top:6,right:12,left:-18,bottom:0}}>
+          <CartesianGrid strokeDasharray="3 3" stroke={C.line2} vertical={false}/>
+          <XAxis dataKey="name" tick={{fontSize:11,fill:C.tx3}} axisLine={false} tickLine={false}/>
+          <YAxis tick={{fontSize:11,fill:C.tx3}} axisLine={false} tickLine={false} domain={[-100,100]}/>
+          <Tooltip content={<Tip/>}/>
+          <ReferenceLine y={0} stroke={C.line}/>
+          <ReferenceLine y={30} stroke={C.exc} strokeDasharray="4 4" label={{value:'Bueno (30)',position:'right',fontSize:10,fill:C.exc}}/>
+          <Line type="monotone" dataKey="NPS" stroke={C.magenta} strokeWidth={2.8} dot={{r:3,fill:C.magenta}} connectNulls/>
+        </LineChart>
+      </ResponsiveContainer>
+    </Card>
+    <Card style={{padding:18,marginTop:14}}>
+      <div style={{fontWeight:700,fontSize:14,marginBottom:8}} className="disp">Promotores vs. detractores (%)</div>
+      <ResponsiveContainer width="100%" height={230}>
+        <BarChart data={series} margin={{top:6,right:12,left:-18,bottom:0}}>
+          <CartesianGrid strokeDasharray="3 3" stroke={C.line2} vertical={false}/>
+          <XAxis dataKey="name" tick={{fontSize:11,fill:C.tx3}} axisLine={false} tickLine={false}/>
+          <YAxis tick={{fontSize:11,fill:C.tx3}} axisLine={false} tickLine={false}/>
+          <Tooltip content={<Tip/>}/>
+          <Bar dataKey="Promotores" radius={[6,6,0,0]} fill={C.promotor} maxBarSize={26}/>
+          <Bar dataKey="Detractores" radius={[6,6,0,0]} fill={C.detractor} maxBarSize={26}/>
+        </BarChart>
+      </ResponsiveContainer>
+    </Card>
+  </div>;
+}
+function Stat({year,ys}){ const b=npsBand(ys.nps); return <Card style={{padding:'16px 16px 14px'}}>
+  <div style={{display:'flex',alignItems:'center',gap:8,fontSize:12.5,fontWeight:600,color:C.tx2}}><CalendarDays size={15} style={{color:C.primary}}/>Año {year}</div>
+  <div style={{display:'flex',alignItems:'flex-end',gap:6,marginTop:8}}><div className="disp" style={{fontSize:28,fontWeight:700,lineHeight:1,color:ys.nps!=null?bandCol(b):C.tx3}}>{ys.nps!=null?(ys.nps>0?'+':'')+ys.nps:'—'}</div>{ys.nps!=null&&<span style={{marginBottom:4}}><Pill band={b} small/></span>}</div>
+  <div style={{fontSize:11.5,color:C.tx3,marginTop:6}}>{ys.n} respuestas · {ys.proP}% prom · {ys.detP}% detr</div>
+</Card>; }
+
+/* ============================================================ CLIENT: VOZ DEL CLIENTE (IA) ============================================================ */
+function ClientVoces({db,clientId,update}){
+  const cd=db.data[clientId]; const c=db.clients.find(x=>x.id===clientId);
+  const years=clientYears(cd); const [year,setYear]=useState(years.slice(-1)[0]);
+  const resp=yearResp(cd,year); const m=npsOf(resp);
+  const cached=db.voices?.[clientId]?.[year]||null;
+  const [load,setLoad]=useState(false); const [err,setErr]=useState(false);
+  const proC=comments(resp,'pro'), detC=comments(resp,'det'), pasC=comments(resp,'pas');
+
+  async function run(){ setLoad(true); setErr(false);
+    const fmt=arr=>arr.slice(0,60).map(x=>`- (${x.e}) ${x.txt}`).join('\n')||'(sin comentarios)';
+    const prompt=`Sos analista de experiencia de cliente (CX) de Delenio People. Analizá los comentarios de una encuesta NPS B2B y detectá los TEMAS recurrentes (drivers), separando lo que impulsa la recomendación de lo que genera detractores.
+
+CONTEXTO DEL CLIENTE:
+${ctxText(c)}
+
+COMENTARIOS DE PROMOTORES (9-10):
+${fmt(proC)}
+
+COMENTARIOS DE DETRACTORES (0-6):
+${fmt(detC)}
+
+COMENTARIOS DE PASIVOS (7-8):
+${fmt(pasC)}
+
+Devolvé SOLO un JSON (sin markdown) con esta forma:
+{"resumen":"2-3 frases ejecutivas sobre la voz del cliente",
+"impulsores":[{"tema":"nombre corto","peso":"Alto|Medio|Bajo","detalle":"qué valoran (1 frase)","ejemplo":"cita textual representativa breve"}],
+"dolores":[{"tema":"nombre corto","peso":"Alto|Medio|Bajo","detalle":"qué falla y a qué producto/servicio se asocia (1 frase)","ejemplo":"cita textual representativa breve"}]}
+Máximo 4 impulsores y 4 dolores, ordenados por peso. Relacioná los temas con los productos/servicios del cliente cuando aplique.`;
+    try{ const t=await callClaude(prompt,1500); const j=parseJSON(t); if(!j||!j.dolores) throw new Error();
+      update(d=>{ if(!d.voices)d.voices={}; if(!d.voices[clientId])d.voices[clientId]={}; d.voices[clientId][year]=j; }); }
+    catch(e){ setErr(true); } finally{ setLoad(false); }
+  }
+  const pesoCol=p=>p==='Alto'?C.magenta:p==='Medio'?C.lila:C.tx3;
+
+  if(!resp.length) return <Empty icon={MessageSquare} title="Sin comentarios para analizar" sub="El análisis se hace sobre los comentarios cargados del año."/>;
+  return <div>
+    <Section title="Voz del cliente" hint="La IA agrupa los comentarios en temas, separando impulsores de dolores" icon={Quote}
+      right={<div style={{display:'flex',gap:10,alignItems:'center'}}>
+        <YearTabs years={years} year={year} setYear={setYear}/>
+        <Btn icon={cached?RotateCcw:Wand2} size="sm" variant={cached?'ghost':'primary'} onClick={run} disabled={load}>{load?'Analizando…':cached?'Reanalizar':'Analizar con IA'}</Btn>
+      </div>}/>
+
+    <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:14,marginBottom:6}}>
+      <Card style={{padding:16}}><div style={{display:'flex',alignItems:'center',gap:8,fontSize:12.5,color:C.tx2,fontWeight:600}}><span style={{display:'grid',placeItems:'center',width:26,height:26,borderRadius:8,background:C.promotorBg,color:C.promotor}}><ThumbsUp size={14}/></span>Comentarios de promotores</div><div className="disp" style={{fontSize:26,fontWeight:700,marginTop:8}}>{proC.length}</div></Card>
+      <Card style={{padding:16}}><div style={{display:'flex',alignItems:'center',gap:8,fontSize:12.5,color:C.tx2,fontWeight:600}}><span style={{display:'grid',placeItems:'center',width:26,height:26,borderRadius:8,background:C.surface,color:C.tx2}}><Minus size={14}/></span>De pasivos</div><div className="disp" style={{fontSize:26,fontWeight:700,marginTop:8}}>{pasC.length}</div></Card>
+      <Card style={{padding:16}}><div style={{display:'flex',alignItems:'center',gap:8,fontSize:12.5,color:C.tx2,fontWeight:600}}><span style={{display:'grid',placeItems:'center',width:26,height:26,borderRadius:8,background:C.detractorBg,color:C.detractor}}><ThumbsDown size={14}/></span>De detractores</div><div className="disp" style={{fontSize:26,fontWeight:700,marginTop:8}}>{detC.length}</div></Card>
+    </div>
+
+    {load&&<AILoader text="Leyendo los comentarios…"/>}
+    {err&&<AIErr onRetry={run}/>}
+    {!cached&&!load&&!err&&<Empty icon={Wand2} title="Analizá la voz de tus clientes" sub="La IA detecta los temas detrás de promotores y detractores y los conecta con tus productos." action={<Btn icon={Wand2} onClick={run}>Analizar con IA</Btn>}/>}
+
+    {cached&&!load&&<div>
+      <Card style={{padding:18,marginBottom:14,background:C.surface,border:'none'}}>
+        <div style={{display:'flex',alignItems:'center',gap:8,fontWeight:700,marginBottom:8}}><Sparkles size={16} style={{color:C.primary}}/>Síntesis ejecutiva</div>
+        <div style={{fontSize:13.5,color:C.tx2,lineHeight:1.6}}>{cached.resumen}</div>
+      </Card>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}}>
+        <div>
+          <div style={{display:'flex',alignItems:'center',gap:8,fontWeight:700,fontSize:14,marginBottom:10,color:C.exc}} className="disp"><ThumbsUp size={16}/>Impulsores de recomendación</div>
+          {(cached.impulsores||[]).map((t,i)=><Card key={i} className="fu" style={{padding:15,marginBottom:10,animationDelay:(i*50)+'ms'}}>
+            <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:6}}><span style={{fontWeight:700,fontSize:14,flex:1}}>{t.tema}</span><span style={{fontSize:10.5,fontWeight:700,color:'#fff',background:pesoCol(t.peso),padding:'2px 8px',borderRadius:7}}>{t.peso}</span></div>
+            <div style={{fontSize:12.5,color:C.tx2,lineHeight:1.5}}>{t.detalle}</div>
+            {t.ejemplo&&<div style={{display:'flex',gap:7,marginTop:9,padding:'8px 10px',background:C.promotorBg,borderRadius:9,fontSize:12,color:C.tx2,fontStyle:'italic'}}><Quote size={13} style={{color:C.exc,flexShrink:0,marginTop:1}}/>{t.ejemplo}</div>}
+          </Card>)}
+        </div>
+        <div>
+          <div style={{display:'flex',alignItems:'center',gap:8,fontWeight:700,fontSize:14,marginBottom:10,color:C.critico}} className="disp"><ThumbsDown size={16}/>Dolores / motivos de detracción</div>
+          {(cached.dolores||[]).map((t,i)=><Card key={i} className="fu" style={{padding:15,marginBottom:10,animationDelay:(i*50)+'ms'}}>
+            <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:6}}><span style={{fontWeight:700,fontSize:14,flex:1}}>{t.tema}</span><span style={{fontSize:10.5,fontWeight:700,color:'#fff',background:pesoCol(t.peso),padding:'2px 8px',borderRadius:7}}>{t.peso}</span></div>
+            <div style={{fontSize:12.5,color:C.tx2,lineHeight:1.5}}>{t.detalle}</div>
+            {t.ejemplo&&<div style={{display:'flex',gap:7,marginTop:9,padding:'8px 10px',background:C.criticoBg,borderRadius:9,fontSize:12,color:C.tx2,fontStyle:'italic'}}><Quote size={13} style={{color:C.critico,flexShrink:0,marginTop:1}}/>{t.ejemplo}</div>}
+          </Card>)}
+        </div>
+      </div>
+    </div>}
+  </div>;
+}
+
+/* ============================================================ CLIENT: MI EMPRESA (CONTEXTO) ============================================================ */
+function ClientContexto({db,clientId,update}){
+  const c=db.clients.find(x=>x.id===clientId);
+  const [f,setF]=useState({sector:c.sector||'',contexto:c.contexto||'',propuesta:c.propuesta||'',productos:(c.productos&&c.productos.length?c.productos:[''])});
+  const [saved,setSaved]=useState(false);
+  const setProd=(i,v)=>setF(p=>{ const a=[...p.productos]; a[i]=v; return {...p,productos:a}; });
+  const save=()=>{ update(d=>{ const i=d.clients.findIndex(x=>x.id===clientId); d.clients[i]={...d.clients[i],sector:f.sector,contexto:f.contexto,propuesta:f.propuesta,productos:f.productos.map(s=>s.trim()).filter(Boolean)}; }); setSaved(true); setTimeout(()=>setSaved(false),2200); };
+  const completeness = [f.contexto,f.propuesta,f.productos.filter(Boolean).length].filter(x=>x&&x!=='' ).length;
+  return <div>
+    <Section title="Mi empresa" hint="Tu contexto alimenta el análisis de comentarios y el plan de acción con IA" icon={Package}
+      right={<div style={{display:'flex',gap:10,alignItems:'center'}}>{saved&&<span style={{display:'inline-flex',alignItems:'center',gap:5,fontSize:12,color:C.exc,fontWeight:700}}><Check size={14}/>Guardado</span>}<Btn icon={Check} size="sm" onClick={save}>Guardar contexto</Btn></div>}/>
+
+    <Card style={{padding:16,marginBottom:14,background:C.gradSoft,border:'none'}}>
+      <div style={{display:'flex',alignItems:'center',gap:10}}>
+        <span style={{display:'grid',placeItems:'center',width:38,height:38,borderRadius:11,background:'#fff',color:C.primary}}><Sparkles size={18}/></span>
+        <div style={{fontSize:13,color:C.tx2,lineHeight:1.5}}>Cuanto más completo esté tu contexto, más afinados serán los planes de acción. La IA usa tus productos y propuesta de valor para conectar cada comentario con una causa y una solución concreta.</div>
+      </div>
+    </Card>
+
+    <div style={{display:'grid',gridTemplateColumns:'1.4fr 1fr',gap:14}}>
+      <Card style={{padding:20}}>
+        <Field label="Sector / industria"><Input value={f.sector} onChange={e=>setF({...f,sector:e.target.value})} placeholder="Ej. Logística B2B, SaaS, Distribución industrial"/></Field>
+        <Field label="¿A qué se dedica la empresa?" hint="A qué clientes B2B atendés y cómo."><Textarea value={f.contexto} onChange={e=>setF({...f,contexto:e.target.value})} placeholder="Describí tu negocio, tus clientes B2B y el contexto del CEO."/></Field>
+        <Field label="Propuesta de valor"><Textarea value={f.propuesta} onChange={e=>setF({...f,propuesta:e.target.value})} style={{minHeight:64}} placeholder="Qué te diferencia de la competencia."/></Field>
+      </Card>
+      <Card style={{padding:20}}>
+        <div style={{fontSize:12,fontWeight:700,color:C.tx2,marginBottom:6}}>Productos y/o servicios</div>
+        <div style={{fontSize:11.5,color:C.tx3,marginBottom:12}}>Listá lo que ofrecés a tus clientes B2B. Cada ítem ayuda a clasificar mejor los comentarios.</div>
+        {f.productos.map((p,i)=><div key={i} style={{display:'flex',gap:8,alignItems:'center',marginBottom:8}}>
+          <span style={{display:'grid',placeItems:'center',width:24,height:24,borderRadius:7,background:C.lila3,color:C.primary,flexShrink:0}}><Package size={13}/></span>
+          <Input value={p} onChange={e=>setProd(i,e.target.value)} placeholder={`Producto / servicio ${i+1}`} style={{padding:'8px 11px',fontSize:13}}/>
+          <IconBtn icon={X} onClick={()=>setF(s=>({...s,productos:s.productos.filter((_,j)=>j!==i)}))}/>
+        </div>)}
+        <button onClick={()=>setF(s=>({...s,productos:[...s.productos,'']}))} style={{display:'inline-flex',alignItems:'center',gap:5,background:'none',border:'none',color:C.primary,fontWeight:700,fontSize:12.5,cursor:'pointer',padding:'6px 0'}}><Plus size={14}/>Agregar producto / servicio</button>
+      </Card>
+    </div>
+  </div>;
+}
+
+/* ============================================================ CLIENT: PLAN DE ACCIÓN (IA) ============================================================ */
+function ClientPlan({db,clientId,update}){
+  const cd=db.data[clientId]; const c=db.clients.find(x=>x.id===clientId);
+  const years=clientYears(cd); const [year,setYear]=useState(years.slice(-1)[0]);
+  const resp=yearResp(cd,year); const m=npsOf(resp); const segs=bySegment(resp,'Segmento');
+  const plan=db.plans?.[clientId]?.[year]||null;
+  const voices=db.voices?.[clientId]?.[year]||null;
+  const [load,setLoad]=useState(false); const [err,setErr]=useState(false); const [saved,setSaved]=useState(false);
+
+  function savePlan(cards){ update(d=>{ if(!d.plans)d.plans={}; if(!d.plans[clientId])d.plans[clientId]={}; d.plans[clientId][year]=cards; }); setSaved(true); setTimeout(()=>setSaved(false),2000); }
+
+  async function generate(){ setLoad(true); setErr(false);
+    const detC=comments(resp,'det').slice(0,40).map(x=>`- (${x.e}) ${x.txt}`).join('\n')||'(sin comentarios de detractores)';
+    const voicesTxt = voices? `\nTEMAS YA DETECTADOS (Voz del cliente):\nImpulsores: ${(voices.impulsores||[]).map(t=>t.tema).join(', ')}\nDolores: ${(voices.dolores||[]).map(t=>`${t.tema} (${t.detalle})`).join(' | ')}` : '';
+    const prompt=`Sos consultor/a senior de CX y RRHH de Delenio People. Diseñá un PLAN DE ACCIÓN para SUBIR EL NPS B2B de un cliente, atacando las causas de detracción y apalancando lo que valoran los promotores.
+
+CONTEXTO DEL CLIENTE:
+${ctxText(c)}
+
+DIAGNÓSTICO NPS (${year}):
+${diagText(m,segs)}
+
+COMENTARIOS DE DETRACTORES:
+${detC}
+${voicesTxt}
+
+Las iniciativas deben ser concretas, accionables para una empresa B2B y conectarse con sus productos/servicios reales cuando aplique.
+Devolvé SOLO un JSON array (sin markdown), 4 a 5 objetos ordenados por impacto:
+[{"foco":"causa o palanca a trabajar (corto)","objetivo":"objetivo claro y medible","acciones":["3 acciones concretas"],"responsable":"área/rol del cliente","indicador":"KPI de seguimiento (incluí impacto esperado en NPS)","plazo":"30/60/90 días o Q1|Q2|Q3|Q4","estado":"Pendiente"}]`;
+    try{ const t=await callClaude(prompt,1700); const j=parseJSON(t); if(!j||!Array.isArray(j)) throw new Error(); savePlan(j.map(c=>({...c,id:uid('ac'),estado:c.estado||'Pendiente'}))); }
+    catch(e){ setErr(true); } finally{ setLoad(false); }
+  }
+
+  if(!resp.length) return <Empty icon={ClipboardList} title="Sin datos para el plan" sub="El plan se genera sobre el diagnóstico NPS del año."/>;
+  return <div>
+    <Section title="Plan de acción" hint="Generado con IA sobre tus detractores y tu contexto · editable" icon={ClipboardList}
+      right={<div style={{display:'flex',gap:10,alignItems:'center'}}>
+        <YearTabs years={years} year={year} setYear={setYear}/>
+        {saved&&<span style={{display:'inline-flex',alignItems:'center',gap:5,fontSize:12,color:C.exc,fontWeight:700}}><Check size={14}/>Guardado</span>}
+        <Btn icon={plan?RotateCcw:Wand2} size="sm" variant={plan?'ghost':'primary'} onClick={generate} disabled={load}>{load?'Generando…':plan?'Regenerar':'Generar con IA'}</Btn>
+      </div>}/>
+
+    {!plan&&!load&&!err&&<Card style={{padding:20,marginBottom:16,background:C.surface,border:'none'}}>
+      <div style={{display:'flex',alignItems:'center',gap:8,fontWeight:700,marginBottom:10}}><Target size={16} style={{color:C.primary}}/>Punto de partida</div>
+      <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+        {m&&<Tag tone={npsBand(m.nps)==='critico'?'bad':'brand'}>NPS {m.nps>0?'+':''}{m.nps}</Tag>}
+        {m&&<Tag tone="bad">{m.detP}% detractores</Tag>}
+        {(c.productos||[]).filter(Boolean).length===0 && <Tag tone="warn">Completá «Mi empresa» para un plan más afinado</Tag>}
+        {voices&&<Tag tone="good">Voz del cliente analizada</Tag>}
+      </div>
+    </Card>}
+
+    {load&&<AILoader text="Diseñando el plan para subir tu NPS…"/>}
+    {err&&<AIErr onRetry={generate}/>}
+    {plan&&!load&&<PlanEditor cards={plan} onChange={savePlan}/>}
+    {!plan&&!load&&!err&&<Empty icon={Wand2} title="Generá tu plan de acción" sub="La IA propone iniciativas para reducir detractores y subir el NPS, conectadas con tus productos. Después lo editás libremente." action={<Btn icon={Wand2} onClick={generate}>Generar con IA</Btn>}/>}
+  </div>;
+}
+
+function PlanEditor({cards,onChange}){
+  const upd=(id,patch)=>onChange(cards.map(c=>c.id===id?{...c,...patch}:c));
+  const del=(id)=>onChange(cards.filter(c=>c.id!==id));
+  const addAction=(id)=>{ const c=cards.find(x=>x.id===id); upd(id,{acciones:[...(c.acciones||[]),'Nueva acción']}); };
+  const setAction=(id,i,v)=>{ const c=cards.find(x=>x.id===id); const a=[...c.acciones]; a[i]=v; upd(id,{acciones:a}); };
+  const delAction=(id,i)=>{ const c=cards.find(x=>x.id===id); upd(id,{acciones:c.acciones.filter((_,j)=>j!==i)}); };
+  const addCard=()=>onChange([...cards,{id:uid('ac'),foco:'Nueva iniciativa',objetivo:'',acciones:['Acción 1'],responsable:'',indicador:'',plazo:'Q1',estado:'Pendiente'}]);
+  const estados=['Pendiente','En curso','Hecho'];
+  const eCol=s=>s==='Hecho'?C.exc:s==='En curso'?C.mejorar:C.tx3;
+  return <div>
+    <div style={{display:'grid',gap:14}}>
+      {cards.map((c,i)=> <Card key={c.id} className="fu" style={{padding:18,animationDelay:(i*50)+'ms'}}>
+        <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:12}}>
+          <span style={{display:'grid',placeItems:'center',width:30,height:30,borderRadius:9,background:C.grad,color:'#fff',fontWeight:700,fontFamily:DISP,fontSize:14}}>{i+1}</span>
+          <input value={c.foco} onChange={e=>upd(c.id,{foco:e.target.value})} style={{flex:1,border:'none',fontFamily:DISP,fontWeight:700,fontSize:16,color:C.tx,background:'transparent'}}/>
+          <Select value={c.estado} onChange={e=>upd(c.id,{estado:e.target.value})} style={{width:'auto',padding:'6px 28px 6px 11px',fontSize:12,fontWeight:700,color:eCol(c.estado)}}>{estados.map(s=><option key={s}>{s}</option>)}</Select>
+          <IconBtn icon={Trash2} tone="danger" onClick={()=>del(c.id)}/>
+        </div>
+        <Field label="Objetivo"><Textarea value={c.objetivo} onChange={e=>upd(c.id,{objetivo:e.target.value})} style={{minHeight:54}}/></Field>
+        <div style={{fontSize:12,fontWeight:700,color:C.tx2,marginBottom:6}}>Acciones</div>
+        {(c.acciones||[]).map((a,j)=><div key={j} style={{display:'flex',gap:8,alignItems:'center',marginBottom:7}}>
+          <span style={{width:6,height:6,borderRadius:'50%',background:C.magenta,flexShrink:0}}/>
+          <input value={a} onChange={e=>setAction(c.id,j,e.target.value)} style={{...inputCss,padding:'8px 11px',fontSize:13}}/>
+          <IconBtn icon={X} onClick={()=>delAction(c.id,j)}/>
+        </div>)}
+        <button onClick={()=>addAction(c.id)} style={{display:'inline-flex',alignItems:'center',gap:5,background:'none',border:'none',color:C.primary,fontWeight:700,fontSize:12.5,cursor:'pointer',padding:'4px 0',marginBottom:10}}><Plus size={14}/>Agregar acción</button>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12,marginTop:4}}>
+          <Field label="Responsable"><Input value={c.responsable} onChange={e=>upd(c.id,{responsable:e.target.value})}/></Field>
+          <Field label="Indicador"><Input value={c.indicador} onChange={e=>upd(c.id,{indicador:e.target.value})}/></Field>
+          <Field label="Plazo"><Input value={c.plazo} onChange={e=>upd(c.id,{plazo:e.target.value})}/></Field>
+        </div>
+      </Card>)}
+    </div>
+    <div style={{display:'flex',justifyContent:'center',marginTop:16}}><Btn variant="ghost" icon={Plus} onClick={addCard}>Agregar iniciativa manual</Btn></div>
+  </div>;
+}
+
+/* ============================================================ SEED / PERSISTENCE ============================================================ */
+const DB_KEY='promotia:db:v1';
+
+const POOL = {
+ nimbus:{
+  pro:['El equipo de soporte responde en minutos, nunca tuvimos un quiebre sin solución.','La API de tracking es súper estable y la integramos en una semana.','El onboarding fue impecable, nos asignaron un account manager dedicado.','Cumplen los SLA de entrega siempre, eso para nosotros es clave.','El TMS nos dio visibilidad total de la flota, lo recomiendo sin dudar.','Trato cercano y proactivo, se anticipan a los problemas.'],
+  pas:['El servicio es bueno pero el panel a veces es lento.','Cumplen, aunque el proceso de facturación podría ser más ágil.','Buen producto, esperamos más funciones de reporting.'],
+  det:['El soporte tardó tres días en responder un incidente crítico.','La API se cayó dos veces este mes y perdimos despachos.','Los tiempos de entrega no coinciden con lo prometido.','Subieron el precio sin aviso y el valor no cambió.','Falta integración con nuestro ERP, lo pedimos hace meses.','El onboarding fue confuso, nadie nos explicó el TMS.']
+ },
+ vertice:{
+  pro:['El catálogo es enorme y siempre encuentro lo que necesito.','El crédito B2B nos dio aire de caja, excelente.','Entregas puntuales y bien embaladas, cero reclamos.','El portal de compras es muy fácil de usar para mi equipo.','Buenos precios y un vendedor que conoce nuestro negocio.'],
+  pas:['Bien en general, pero faltan algunos productos de nicho.','El portal funciona, aunque la búsqueda podría mejorar.'],
+  det:['Las entregas se atrasan seguido en el interior.','El portal de compras se cuelga cuando armo pedidos grandes.','Pedí una línea de crédito mayor y nunca me respondieron.','La calidad de algunos productos bajó respecto al año pasado.','La atención post-venta es lenta para resolver garantías.']
+ }
+};
+const SECTORS=['Retail','Manufactura','Agro','Construcción','Tecnología'];
+const REGIONS=['AMBA','Interior','Cuyo','NOA'];
+function pick(a){ return a[Math.floor(Math.random()*a.length)]; }
+function genMonths(poolKey, base, months){
+  const P=POOL[poolKey]; const out=[];
+  months.forEach((mk,idx)=>{
+    const n=18+Math.floor(Math.random()*12);
+    const target=base+idx*4; // mejora gradual
+    const responses=[];
+    for(let i=0;i<n;i++){
+      // distribución alrededor del target NPS
+      const roll=Math.random()*100; let e;
+      const proW=Math.min(70,Math.max(25, 45+target/3));
+      const detW=Math.max(8, 30-target/4);
+      if(roll<detW) e=Math.floor(Math.random()*7);          // 0-6 detractor
+      else if(roll<detW+(100-proW-detW)) e=7+Math.floor(Math.random()*2); // 7-8 pasivo
+      else e=9+Math.floor(Math.random()*2);                 // 9-10 promotor
+      const r={e};
+      const kind=e>=9?'pro':e>=7?'pas':'det';
+      if(Math.random()<0.7) r.c=pick(P[kind]);
+      r.d={Segmento:pick(SEGMENTOS),Sector:pick(SECTORS),'Región':pick(REGIONS)};
+      responses.push(r);
+    }
+    out.push({month:mk, sent:n+Math.floor(Math.random()*10), responses});
+  });
+  return out;
+}
+function seedDB(){
+  const c1id='c_nimbus', c2id='c_vertice';
+  const clients=[
+    {id:c1id,name:'Nimbus Logística',code:'NIM-3PL',web:'www.nimbuslog.com',sector:'Logística B2B',
+     contexto:'Operador logístico 3PL que da servicio a retailers y fabricantes en Argentina. Combina software de gestión de transporte (TMS) con operación de flota y depósitos. El CEO busca diferenciarse por nivel de servicio y retener cuentas Enterprise.',
+     productos:['TMS (software de gestión de transporte)','API de tracking en tiempo real','Operación de flota y last-mile','Soporte 24/7','Onboarding con account manager'],
+     propuesta:'Visibilidad total de la operación logística con cumplimiento de SLA y soporte dedicado.',
+     segmentos:[...SEGMENTOS], notas:'Cuenta abierta vía People Drive. CEO preocupado por detractores en soporte.'},
+    {id:c2id,name:'Vértice Industrial',code:'VER-DIST',web:'www.verticeindustrial.com',sector:'Distribución industrial B2B',
+     contexto:'Distribuidor mayorista de insumos industriales con catálogo amplio y portal de e-commerce B2B. Atiende industria, construcción y agro. Crece por la línea de crédito B2B.',
+     productos:['Catálogo de insumos industriales','Línea de crédito B2B','Logística y entregas','Portal de compras online','Atención comercial dedicada'],
+     propuesta:'Amplitud de catálogo + financiación B2B + entregas confiables en un solo proveedor.',
+     segmentos:[...SEGMENTOS], notas:''},
+  ];
+  const data={
+    [c1id]:{months:genMonths('nimbus', 22, ['2025-01','2025-02','2025-03','2025-04','2025-05','2025-06','2025-07','2025-08'])},
+    [c2id]:{months:genMonths('vertice', 8, ['2025-02','2025-03','2025-04','2025-05','2025-06','2025-07'])},
+  };
+  const users=[
+    {id:'u_admin',name:'Ezequiel Luberriaga',email:'ezequiell@delenio.net',role:'Admin',clientId:'',status:'Activo'},
+    {id:'u_c1',name:'Gerencia Comercial',email:'cx@nimbuslog.com',role:'Cliente',clientId:c1id,status:'Activo'},
+    {id:'u_c2',name:'Customer Success',email:'cs@verticeindustrial.com',role:'Cliente',clientId:c2id,status:'Invitado'},
+  ];
+  return {clients,data,users,plans:{},voices:{}};
+}
+
+/* ============================================================ LOGIN ============================================================ */
+function Login({db,onAdmin,onClient}){
+  return <div style={{minHeight:'100vh',display:'grid',gridTemplateColumns:'1fr 1fr'}}>
+    <div style={{background:C.gradHero,color:'#fff',padding:'56px 54px',display:'flex',flexDirection:'column',justifyContent:'space-between',position:'relative',overflow:'hidden'}}>
+      <div style={{position:'absolute',right:-80,top:-60,width:280,height:280,borderRadius:'50%',background:'rgba(255,255,255,.08)'}}/>
+      <div style={{position:'absolute',left:-50,bottom:-40,width:200,height:200,borderRadius:'50%',background:'rgba(255,255,255,.07)'}}/>
+      <Wordmark size={26} light/>
+      <div style={{position:'relative'}}>
+        <svg width="100%" height="64" viewBox="0 0 380 64" style={{marginBottom:26,opacity:.9}}><path d="M0 48 H60 L88 18 L120 50 L150 30 H210 L238 12 L268 44 L298 26 H380" stroke="#fff" strokeWidth="2.4" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>
+        <h1 style={{fontSize:34,fontWeight:700,margin:0,lineHeight:1.1}}>El NPS de tus clientes B2B,<br/>medido mes a mes.</h1>
+        <p style={{fontSize:15,opacity:.9,lineHeight:1.6,marginTop:16,maxWidth:430}}>Una sola pregunta, la metodología NPS de siempre. Dashboards de promotores y detractores, voz del cliente con IA y planes de acción para subir tu score.</p>
+      </div>
+      <div style={{fontSize:12.5,opacity:.8}}>Un microservicio de Delenio People · delenio.net</div>
+    </div>
+    <div style={{display:'grid',placeItems:'center',padding:40}}>
+      <div style={{width:'100%',maxWidth:380}}>
+        <div style={{fontSize:13,color:C.tx3,fontWeight:700,marginBottom:6}}>BIENVENIDO</div>
+        <h2 style={{fontSize:26,fontWeight:700,margin:'0 0 4px'}}>Ingresá a PromotIA</h2>
+        <p style={{fontSize:13.5,color:C.tx2,margin:'0 0 26px'}}>Elegí cómo querés entrar.</p>
+        <button onClick={onAdmin} className="lift" style={{width:'100%',display:'flex',alignItems:'center',gap:13,padding:'16px 18px',borderRadius:14,border:`1px solid ${C.line}`,background:C.tx,color:'#fff',cursor:'pointer',marginBottom:14}}>
+          <span style={{display:'grid',placeItems:'center',width:40,height:40,borderRadius:11,background:'rgba(255,255,255,.12)'}}><ShieldCheck size={20}/></span>
+          <span style={{textAlign:'left',flex:1}}><span style={{display:'block',fontWeight:700,fontSize:15,fontFamily:DISP}}>Panel de administración</span><span style={{fontSize:12,opacity:.75}}>Equipo Delenio · gestión completa</span></span>
+          <ChevronRight size={18}/>
+        </button>
+        <div style={{fontSize:12,color:C.tx3,fontWeight:700,margin:'18px 0 10px'}}>PORTALES DE CLIENTE</div>
+        <div style={{display:'flex',flexDirection:'column',gap:10}}>
+          {db.clients.map(c=> <button key={c.id} onClick={()=>onClient(c.id)} className="lift" style={{display:'flex',alignItems:'center',gap:12,padding:'13px 16px',borderRadius:13,border:`1px solid ${C.line}`,background:'#fff',cursor:'pointer'}}>
+            <span style={{display:'grid',placeItems:'center',width:38,height:38,borderRadius:10,background:C.grad,color:'#fff',fontWeight:700,fontFamily:DISP,fontSize:16}}>{c.name[0]}</span>
+            <span style={{textAlign:'left',flex:1}}><span style={{display:'block',fontWeight:700,fontSize:14,color:C.tx}}>{c.name}</span><span style={{fontSize:11.5,color:C.tx3}}>{c.code}</span></span>
+            <ChevronRight size={17} style={{color:C.tx3}}/>
+          </button>)}
+        </div>
+        <p style={{fontSize:11,color:C.tx3,marginTop:22,lineHeight:1.5}}>Acceso simulado para la demo. En producción cada usuario entra con su cuenta y solo ve su portal.</p>
+      </div>
+    </div>
+  </div>;
+}
+
+/* ============================================================ NAV + SHELL ============================================================ */
+function NavItem({icon:Icon,label,active,onClick}){
+  return <button onClick={onClick} style={{display:'flex',alignItems:'center',gap:11,width:'100%',padding:'11px 13px',borderRadius:11,border:'none',cursor:'pointer',marginBottom:3,textAlign:'left',
+    background:active?C.lila3:'transparent',color:active?C.primary:C.tx2,fontWeight:active?700:600,fontSize:13.5,transition:'all .12s'}}>
+    <Icon size={18} style={{color:active?C.magenta:C.tx3}}/>{label}
+  </button>;
+}
+function Shell({nav,active,setActive,topRight,brandSub,children,accentName}){
+  return <div style={{minHeight:'100vh',display:'flex',background:C.surface2}}>
+    <aside style={{width:240,background:'#fff',borderRight:`1px solid ${C.line}`,padding:'20px 16px',display:'flex',flexDirection:'column',position:'sticky',top:0,height:'100vh'}}>
+      <div style={{padding:'2px 6px 18px'}}><Wordmark size={19}/></div>
+      <div style={{fontSize:10.5,fontWeight:700,color:C.tx3,letterSpacing:.5,padding:'4px 10px 8px'}}>{accentName}</div>
+      <nav style={{flex:1}}>{nav.map(n=> <NavItem key={n.key} icon={n.icon} label={n.label} active={active===n.key} onClick={()=>setActive(n.key)}/>)}</nav>
+      <div style={{fontSize:11,color:C.tx3,padding:'12px 10px 2px',borderTop:`1px solid ${C.line2}`}}>{brandSub}</div>
+    </aside>
+    <main style={{flex:1,minWidth:0}}>
+      <header style={{position:'sticky',top:0,zIndex:20,background:'rgba(255,255,255,.85)',backdropFilter:'blur(8px)',borderBottom:`1px solid ${C.line}`,padding:'12px 28px',display:'flex',alignItems:'center',gap:12}}>
+        <div style={{fontWeight:700,fontSize:15,fontFamily:DISP}}>{nav.find(n=>n.key===active)?.label}</div>
+        <div style={{marginLeft:'auto',display:'flex',alignItems:'center',gap:10}}>{topRight}</div>
+      </header>
+      <div style={{padding:'10px 28px 56px',maxWidth:1180,margin:'0 auto'}}>{children}</div>
+    </main>
+  </div>;
+}
+
+function AdminApp({db,update,onLogout,openClient}){
+  const [view,setView]=useState('clientes');
+  const nav=[
+    {key:'clientes',label:'Clientes',icon:Building2},
+    {key:'carga',label:'Carga de NPS',icon:Upload},
+    {key:'usuarios',label:'Usuarios y accesos',icon:ShieldCheck},
+    {key:'uso',label:'Uso',icon:Activity},
+    {key:'cross',label:'Cross-sell IA',icon:Sparkles},
+  ];
+  return <Shell nav={nav} active={view} setActive={setView} accentName="ADMINISTRACIÓN" brandSub="PromotIA · Delenio People"
+    topRight={<><Tag tone="brand"><ShieldCheck size={12} style={{marginRight:4,verticalAlign:'-2px'}}/>Admin</Tag><Btn size="sm" variant="ghost" icon={LogOut} onClick={onLogout}>Salir</Btn></>}>
+    {view==='clientes'&&<AdminClientes db={db} update={update} goClient={openClient}/>}
+    {view==='carga'&&<AdminCarga db={db} update={update}/>}
+    {view==='usuarios'&&<AdminUsuarios db={db} update={update}/>}
+    {view==='uso'&&<AdminUso db={db}/>}
+    {view==='cross'&&<AdminCrossSell db={db}/>}
+  </Shell>;
+}
+
+function ClientAppShell({db,update,clientId,onLogout,fromAdmin,backToAdmin}){
+  const [view,setView]=useState('resumen');
+  const c=db.clients.find(x=>x.id===clientId);
+  const nav=[
+    {key:'historico',label:'Dashboard histórico',icon:BarChart3},
+    {key:'resumen',label:'NPS del año',icon:LayoutDashboard},
+    {key:'voces',label:'Voz del cliente',icon:Quote},
+    {key:'contexto',label:'Mi empresa',icon:Package},
+    {key:'plan',label:'Plan de acción',icon:ClipboardList},
+  ];
+  return <Shell nav={nav} active={view} setActive={setView} accentName={(c?.name||'CLIENTE').toUpperCase()} brandSub={c?.name}
+    topRight={<>
+      <span style={{display:'inline-flex',alignItems:'center',gap:7,fontSize:13,color:C.tx2}}><span style={{display:'grid',placeItems:'center',width:28,height:28,borderRadius:8,background:C.grad,color:'#fff',fontWeight:700,fontFamily:DISP,fontSize:13}}>{c?.name[0]}</span>{c?.name}</span>
+      {fromAdmin? <Btn size="sm" variant="ghost" icon={ArrowLeft} onClick={backToAdmin}>Volver a admin</Btn> : <Btn size="sm" variant="ghost" icon={LogOut} onClick={onLogout}>Salir</Btn>}
+    </>}>
+    {view==='historico'&&<ClientHistorico db={db} clientId={clientId}/>}
+    {view==='resumen'&&<ClientResumen db={db} clientId={clientId}/>}
+    {view==='voces'&&<ClientVoces db={db} clientId={clientId} update={update}/>}
+    {view==='contexto'&&<ClientContexto db={db} clientId={clientId} update={update}/>}
+    {view==='plan'&&<ClientPlan db={db} clientId={clientId} update={update}/>}
+  </Shell>;
+}
+
+/* ============================================================ ROOT ============================================================ */
+export default function PromotIA(){
+  const [db,setDb]=useState(null);
+  const [session,setSession]=useState(null);
+  const [loading,setLoading]=useState(true);
+
+  useEffect(()=>{ (async()=>{
+    try{ const r=await storage.get(DB_KEY); if(r&&r.value){ setDb(JSON.parse(r.value)); setLoading(false); return; } }catch(e){}
+    const seed=seedDB();
+    try{ await storage.set(DB_KEY, JSON.stringify(seed)); }catch(e){}
+    setDb(seed); setLoading(false);
+  })(); },[]);
+
+  function update(fn){ setDb(prev=>{ const next=JSON.parse(JSON.stringify(prev)); fn(next);
+    (async()=>{ try{ await storage.set(DB_KEY, JSON.stringify(next)); }catch(e){} })();
+    return next; }); }
+
+  if(loading||!db) return <div className="promotia"><GlobalStyle/><div style={{minHeight:'100vh',display:'grid',placeItems:'center',background:C.surface2}}><div style={{textAlign:'center'}}><div style={{display:'inline-grid',placeItems:'center',marginBottom:14}}><Mark size={52}/></div><div style={{display:'flex',alignItems:'center',gap:9,color:C.tx2,fontWeight:600}}><Spinner size={16} color={C.primary}/>Cargando PromotIA…</div></div></div></div>;
+
+  return <div className="promotia"><GlobalStyle/>
+    {!session && <Login db={db} onAdmin={()=>setSession({role:'admin'})} onClient={(id)=>setSession({role:'client',clientId:id})}/>}
+    {session?.role==='admin' && <AdminApp db={db} update={update} onLogout={()=>setSession(null)} openClient={(id)=>setSession({role:'client',clientId:id,fromAdmin:true})}/>}
+    {session?.role==='client' && <ClientAppShell db={db} update={update} clientId={session.clientId} fromAdmin={session.fromAdmin} backToAdmin={()=>setSession({role:'admin'})} onLogout={()=>setSession(null)}/>}
+  </div>;
+}
