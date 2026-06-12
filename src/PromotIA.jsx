@@ -1123,73 +1123,9 @@ function PlanEditor({cards,onChange}){
   </div>;
 }
 
-/* ============================================================ SEED / PERSISTENCE ============================================================ */
-const DB_KEY='promotia:db:v1';
-
-const POOL = {
- nimbus:{
-  pro:['El equipo de soporte responde en minutos, nunca tuvimos un quiebre sin solución.','La API de tracking es súper estable y la integramos en una semana.','El onboarding fue impecable, nos asignaron un account manager dedicado.','Cumplen los SLA de entrega siempre, eso para nosotros es clave.','El TMS nos dio visibilidad total de la flota, lo recomiendo sin dudar.','Trato cercano y proactivo, se anticipan a los problemas.'],
-  pas:['El servicio es bueno pero el panel a veces es lento.','Cumplen, aunque el proceso de facturación podría ser más ágil.','Buen producto, esperamos más funciones de reporting.'],
-  det:['El soporte tardó tres días en responder un incidente crítico.','La API se cayó dos veces este mes y perdimos despachos.','Los tiempos de entrega no coinciden con lo prometido.','Subieron el precio sin aviso y el valor no cambió.','Falta integración con nuestro ERP, lo pedimos hace meses.','El onboarding fue confuso, nadie nos explicó el TMS.']
- },
- vertice:{
-  pro:['El catálogo es enorme y siempre encuentro lo que necesito.','El crédito B2B nos dio aire de caja, excelente.','Entregas puntuales y bien embaladas, cero reclamos.','El portal de compras es muy fácil de usar para mi equipo.','Buenos precios y un vendedor que conoce nuestro negocio.'],
-  pas:['Bien en general, pero faltan algunos productos de nicho.','El portal funciona, aunque la búsqueda podría mejorar.'],
-  det:['Las entregas se atrasan seguido en el interior.','El portal de compras se cuelga cuando armo pedidos grandes.','Pedí una línea de crédito mayor y nunca me respondieron.','La calidad de algunos productos bajó respecto al año pasado.','La atención post-venta es lenta para resolver garantías.']
- }
-};
-const SECTORS=['Retail','Manufactura','Agro','Construcción','Tecnología'];
-const REGIONS=['AMBA','Interior','Cuyo','NOA'];
-function pick(a){ return a[Math.floor(Math.random()*a.length)]; }
-function genMonths(poolKey, base, months){
-  const P=POOL[poolKey]; const out=[];
-  months.forEach((mk,idx)=>{
-    const n=18+Math.floor(Math.random()*12);
-    const target=base+idx*4; // mejora gradual
-    const responses=[];
-    for(let i=0;i<n;i++){
-      // distribución alrededor del target NPS
-      const roll=Math.random()*100; let e;
-      const proW=Math.min(70,Math.max(25, 45+target/3));
-      const detW=Math.max(8, 30-target/4);
-      if(roll<detW) e=Math.floor(Math.random()*7);          // 0-6 detractor
-      else if(roll<detW+(100-proW-detW)) e=7+Math.floor(Math.random()*2); // 7-8 pasivo
-      else e=9+Math.floor(Math.random()*2);                 // 9-10 promotor
-      const r={e};
-      const kind=e>=9?'pro':e>=7?'pas':'det';
-      if(Math.random()<0.7) r.c=pick(P[kind]);
-      r.d={Segmento:pick(SEGMENTOS),Sector:pick(SECTORS),'Región':pick(REGIONS)};
-      responses.push(r);
-    }
-    out.push({month:mk, sent:n+Math.floor(Math.random()*10), responses});
-  });
-  return out;
-}
-function seedDB(){
-  const c1id='c_nimbus', c2id='c_vertice';
-  const clients=[
-    {id:c1id,name:'Nimbus Logística',code:'NIM-3PL',web:'www.nimbuslog.com',sector:'Logística B2B',
-     contexto:'Operador logístico 3PL que da servicio a retailers y fabricantes en Argentina. Combina software de gestión de transporte (TMS) con operación de flota y depósitos. El CEO busca diferenciarse por nivel de servicio y retener cuentas Enterprise.',
-     productos:['TMS (software de gestión de transporte)','API de tracking en tiempo real','Operación de flota y last-mile','Soporte 24/7','Onboarding con account manager'],
-     propuesta:'Visibilidad total de la operación logística con cumplimiento de SLA y soporte dedicado.',
-     segmentos:[...SEGMENTOS], notas:'Cuenta abierta vía People Drive. CEO preocupado por detractores en soporte.'},
-    {id:c2id,name:'Vértice Industrial',code:'VER-DIST',web:'www.verticeindustrial.com',sector:'Distribución industrial B2B',
-     contexto:'Distribuidor mayorista de insumos industriales con catálogo amplio y portal de e-commerce B2B. Atiende industria, construcción y agro. Crece por la línea de crédito B2B.',
-     productos:['Catálogo de insumos industriales','Línea de crédito B2B','Logística y entregas','Portal de compras online','Atención comercial dedicada'],
-     propuesta:'Amplitud de catálogo + financiación B2B + entregas confiables en un solo proveedor.',
-     segmentos:[...SEGMENTOS], notas:''},
-  ];
-  const data={
-    [c1id]:{months:genMonths('nimbus', 22, ['2025-01','2025-02','2025-03','2025-04','2025-05','2025-06','2025-07','2025-08'])},
-    [c2id]:{months:genMonths('vertice', 8, ['2025-02','2025-03','2025-04','2025-05','2025-06','2025-07'])},
-  };
-  const users=[
-    {id:'u_admin',name:'Ezequiel Luberriaga',email:'ezequiell@delenio.net',role:'Admin',clientId:'',status:'Activo'},
-    {id:'u_c1',name:'Gerencia Comercial',email:'cx@nimbuslog.com',role:'Cliente',clientId:c1id,status:'Activo'},
-    {id:'u_c2',name:'Customer Success',email:'cs@verticeindustrial.com',role:'Cliente',clientId:c2id,status:'Invitado'},
-  ];
-  return {clients,data,users,plans:{},voices:{}};
-}
+/* ============================================================ PERSISTENCE ============================================================ */
+const DB_KEY='promotia:db:v2';
+function seedDB(){ return {clients:[],data:{},users:[],plans:{},voices:{}}; }
 
 /* ============================================================ LOGIN ============================================================ */
 function Login({db,onAdmin,onClient}){
@@ -1223,7 +1159,7 @@ function Login({db,onAdmin,onClient}){
             <ChevronRight size={17} style={{color:C.tx3}}/>
           </button>)}
         </div>
-        <p style={{fontSize:11,color:C.tx3,marginTop:22,lineHeight:1.5}}>Acceso simulado para la demo. En producción cada usuario entra con su cuenta y solo ve su portal.</p>
+        <p style={{fontSize:11,color:C.tx3,marginTop:22,lineHeight:1.5}}>Cada usuario accede con su cuenta y solo ve su portal asignado.</p>
       </div>
     </div>
   </div>;
