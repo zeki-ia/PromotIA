@@ -631,7 +631,7 @@ function AdminUsuarios({db,update}){
         const d=await r.json();
         if(!r.ok||d.error){setSaveErr(d.error||'Error al crear usuario');setSaving(false);return;}
         update(db=>{ db.users.push({...u,id:d.userId,password:undefined}); });
-      }catch(e){setSaveErr('Error de red al crear usuario');setSaving(false);return;}
+      }catch(e){setSaveErr('Error: '+e.message);setSaving(false);return;}
     } else {
       update(db=>{ const i=db.users.findIndex(x=>x.id===u.id); db.users[i]={...u,password:undefined}; });
     }
