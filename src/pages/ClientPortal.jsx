@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { C, DISP, BODY, MES } from '../lib/tokens'
+import { supabase } from '../lib/supabase'
 
 function npsCalc(responses) {
   if (!responses?.length) return null
@@ -26,11 +27,50 @@ function Kpi({ title, value, sub, color }) {
   )
 }
 
+function ChangePasswordModal({ open, onClose }) {
+  const [next, setNext] = useState('')
+  const [confirm, setConfirm] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [msg, setMsg] = useState(null)
+  const inputStyle = { width: '100%', border: `1px solid ${C.line}`, borderRadius: 10, padding: '10px 13px', fontSize: 13.5, fontFamily: BODY, marginTop: 6 }
+  async function save() {
+    if (next.length < 6) { setMsg({ bad: true, text: 'Mínimo 6 caracteres.' }); return }
+    if (next !== confirm) { setMsg({ bad: true, text: 'Las contraseñas no coinciden.' }); return }
+    setSaving(true); setMsg(null)
+    const { error } = await supabase.auth.updateUser({ password: next })
+    if (error) { setMsg({ bad: true, text: error.message }) }
+    else { setMsg({ bad: false, text: '¡Contraseña actualizada!' }); setTimeout(() => { onClose(); setNext(''); setConfirm(''); setMsg(null) }, 1400) }
+    setSaving(false)
+  }
+  if (!open) return null
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 60, background: 'rgba(26,10,28,.42)', display: 'grid', placeItems: 'center', padding: 20 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 18, width: '100%', maxWidth: 400, padding: 28, boxShadow: '0 30px 70px -20px rgba(115,1,123,.4)' }}>
+        <div style={{ fontFamily: DISP, fontWeight: 700, fontSize: 17, marginBottom: 18 }}>Cambiar contraseña</div>
+        <label style={{ display: 'block', marginBottom: 14 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#5E4E64' }}>Nueva contraseña</div>
+          <input type="password" value={next} onChange={e => setNext(e.target.value)} placeholder="Mínimo 6 caracteres" style={inputStyle}/>
+        </label>
+        <label style={{ display: 'block', marginBottom: 14 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#5E4E64' }}>Confirmar contraseña</div>
+          <input type="password" value={confirm} onChange={e => setConfirm(e.target.value)} placeholder="Repetí la contraseña" style={inputStyle}/>
+        </label>
+        {msg && <div style={{ background: msg.bad ? '#FCE7E5' : '#E0F3EA', color: msg.bad ? '#E5564B' : '#1E9E6A', borderRadius: 9, padding: '9px 12px', fontSize: 13, marginBottom: 12 }}>{msg.text}</div>}
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <button onClick={onClose} style={{ padding: '9px 16px', borderRadius: 10, border: `1px solid ${C.line}`, background: '#fff', cursor: 'pointer', fontFamily: DISP, fontWeight: 600, fontSize: 13 }}>Cancelar</button>
+          <button onClick={save} disabled={saving} style={{ padding: '9px 16px', borderRadius: 10, border: 'none', background: C.primary, color: '#fff', cursor: saving ? 'not-allowed' : 'pointer', fontFamily: DISP, fontWeight: 700, fontSize: 13, opacity: saving ? .7 : 1 }}>{saving ? 'Guardando…' : 'Guardar'}</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function ClientPortal({ clientId, clientName, onLogout }) {
   const [months, setMonths] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [brand, setBrand] = useState({ color: C.primary, logo: null, title: null })
+  const [chgPwd, setChgPwd] = useState(false)
 
   useEffect(() => {
     fetch(`/api/client-portal?clientId=${clientId}`)
@@ -71,6 +111,7 @@ export default function ClientPortal({ clientId, clientName, onLogout }) {
 
   return (
     <div style={{ minHeight: '100vh', background: C.surface, fontFamily: BODY }}>
+      <ChangePasswordModal open={chgPwd} onClose={() => setChgPwd(false)}/>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Quicksand:wght@400;600;700&family=Archivo:wght@400;500;600;700&display=swap');*{box-sizing:border-box}`}</style>
 
       {/* Header — white-label */}
@@ -80,6 +121,7 @@ export default function ClientPortal({ clientId, clientName, onLogout }) {
           <div style={{ fontFamily: DISP, fontWeight: 700, fontSize: 11, color: 'rgba(255,255,255,.7)', letterSpacing: 1, marginBottom: 2 }}>PORTAL NPS</div>
           <div style={{ fontFamily: DISP, fontWeight: 700, fontSize: 20, color: '#fff' }}>{brand.title || clientName || 'Mi empresa'}</div>
         </div>
+        <button onClick={() => setChgPwd(true)} style={{ background: 'rgba(255,255,255,.15)', border: '1px solid rgba(255,255,255,.3)', color: '#fff', borderRadius: 9, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: DISP, marginRight: 8 }}>Contraseña</button>
         <button onClick={onLogout} style={{ background: 'rgba(255,255,255,.15)', border: '1px solid rgba(255,255,255,.3)', color: '#fff', borderRadius: 9, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: DISP }}>Salir</button>
       </div>
 

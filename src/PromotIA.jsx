@@ -616,10 +616,27 @@ function AdminLinks({db,update}){
 
 /* ============================================================ ADMIN: USUARIOS ============================================================ */
 function AdminUsuarios({db,update}){
-  const [edit,setEdit]=useState(null);
-  const blank={id:'',name:'',email:'',role:'Cliente',clientId:db.clients[0]?.id||'',status:'Activo'};
+  const [edit,setEdit]=useState(null); const [saving,setSaving]=useState(false); const [saveErr,setSaveErr]=useState('');
+  const blank={id:'',name:'',email:'',password:'',role:'Cliente',clientId:db.clients[0]?.id||'',status:'Activo'};
   const cname=id=>db.clients.find(c=>c.id===id)?.name||'—';
-  const save=()=>{ const u=edit; if(!u.name.trim()||!u.email.trim())return; update(d=>{ if(u.id){const i=d.users.findIndex(x=>x.id===u.id); d.users[i]={...u};} else d.users.push({...u,id:uid('u')}); }); setEdit(null); };
+  const clientCode=id=>db.clients.find(c=>c.id===id)?.id||'';
+  const save=async()=>{
+    const u=edit; if(!u.name.trim()||!u.email.trim())return;
+    setSaving(true); setSaveErr('');
+    if(!u.id){
+      // Usuario nuevo → crear en Supabase Auth
+      if(!u.password||u.password.length<6){setSaveErr('La contraseña debe tener al menos 6 caracteres.');setSaving(false);return;}
+      try{
+        const r=await fetch('/api/create-user',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:u.name,email:u.email,password:u.password,role:u.role,clientCode:u.role==='Cliente'?clientCode(u.clientId):null})});
+        const d=await r.json();
+        if(!r.ok||d.error){setSaveErr(d.error||'Error al crear usuario');setSaving(false);return;}
+        update(db=>{ db.users.push({...u,id:d.userId,password:undefined}); });
+      }catch(e){setSaveErr('Error de red al crear usuario');setSaving(false);return;}
+    } else {
+      update(db=>{ const i=db.users.findIndex(x=>x.id===u.id); db.users[i]={...u,password:undefined}; });
+    }
+    setSaving(false); setEdit(null);
+  };
   return <div>
     <Section title="Usuarios y accesos" hint={`${db.users.length} usuarios · quién entra y a qué portal`} icon={ShieldCheck}
       right={<Btn icon={Plus} onClick={()=>setEdit({...blank})}>Invitar usuario</Btn>}/>
@@ -637,16 +654,18 @@ function AdminUsuarios({db,update}){
         </tr>)}</tbody>
       </table>
     </Card>
-    <Modal open={!!edit} onClose={()=>setEdit(null)} title={edit?.id?'Editar usuario':'Invitar usuario'} icon={ShieldCheck} width={480}>
+    <Modal open={!!edit} onClose={()=>setEdit(null)} title={edit?.id?'Editar usuario':'Crear usuario'} icon={ShieldCheck} width={480}>
       {edit&&<div>
         <Field label="Nombre"><Input value={edit.name} onChange={e=>setEdit({...edit,name:e.target.value})}/></Field>
-        <Field label="Email"><Input value={edit.email} onChange={e=>setEdit({...edit,email:e.target.value})} placeholder="persona@empresa.com"/></Field>
+        <Field label="Email"><Input value={edit.email} onChange={e=>setEdit({...edit,email:e.target.value})} placeholder="persona@empresa.com" disabled={!!edit.id}/></Field>
+        {!edit.id&&<Field label="Contraseña" hint="Mínimo 6 caracteres · La compartís con el usuario"><Input type="password" value={edit.password||''} onChange={e=>setEdit({...edit,password:e.target.value})} placeholder="Ej: Empresa2025!"/></Field>}
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
           <Field label="Rol"><Select value={edit.role} onChange={e=>setEdit({...edit,role:e.target.value})}><option>Cliente</option><option>Admin</option></Select></Field>
           <Field label="Estado"><Select value={edit.status} onChange={e=>setEdit({...edit,status:e.target.value})}><option>Activo</option><option>Invitado</option></Select></Field>
         </div>
         {edit.role==='Cliente'&&<Field label="Cliente asignado"><Select value={edit.clientId} onChange={e=>setEdit({...edit,clientId:e.target.value})}>{db.clients.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</Select></Field>}
-        <div style={{display:'flex',justifyContent:'flex-end',gap:8,marginTop:6}}><Btn variant="ghost" onClick={()=>setEdit(null)}>Cancelar</Btn><Btn icon={Check} onClick={save}>Guardar</Btn></div>
+        {saveErr&&<div style={{background:'#FCE7E5',color:'#E5564B',borderRadius:9,padding:'9px 12px',fontSize:13,marginBottom:8}}>{saveErr}</div>}
+        <div style={{display:'flex',justifyContent:'flex-end',gap:8,marginTop:6}}><Btn variant="ghost" onClick={()=>setEdit(null)}>Cancelar</Btn><Btn icon={saving?undefined:Check} onClick={save} disabled={saving}>{saving?<><Spinner size={14} color="#fff"/>Creando…</>:'Guardar'}</Btn></div>
       </div>}
     </Modal>
   </div>;
@@ -1210,6 +1229,34 @@ function Login({db,onAdmin,onClient}){
   </div>;
 }
 
+/* ============================================================ CAMBIAR CONTRASEÑA (compartido admin + cliente) ============================================================ */
+function ChangePasswordModal({open,onClose}){
+  const [cur,setCur]=useState(''); const [next,setNext]=useState(''); const [confirm,setConfirm]=useState('');
+  const [loading,setLoading]=useState(false); const [msg,setMsg]=useState(null);
+  function reset(){ setCur(''); setNext(''); setConfirm(''); setMsg(null); }
+  async function save(){
+    if(!next||next.length<6){setMsg({bad:true,text:'La contraseña debe tener al menos 6 caracteres.'});return;}
+    if(next!==confirm){setMsg({bad:true,text:'Las contraseñas no coinciden.'});return;}
+    setLoading(true); setMsg(null);
+    try{
+      const {error}=await supabase.auth.updateUser({password:next});
+      if(error){setMsg({bad:true,text:error.message});}
+      else{setMsg({bad:false,text:'¡Contraseña actualizada correctamente!'}); setTimeout(()=>{onClose();reset();},1400);}
+    }catch(e){setMsg({bad:true,text:'Error de red. Intentá de nuevo.'});}
+    setLoading(false);
+  }
+  if(!open)return null;
+  return <Modal open={open} onClose={()=>{onClose();reset();}} title="Cambiar contraseña" icon={ShieldCheck} width={420}>
+    <Field label="Nueva contraseña" hint="Mínimo 6 caracteres"><Input type="password" value={next} onChange={e=>setNext(e.target.value)} placeholder="Nueva contraseña"/></Field>
+    <Field label="Confirmar contraseña"><Input type="password" value={confirm} onChange={e=>setConfirm(e.target.value)} placeholder="Repetí la contraseña"/></Field>
+    {msg&&<div style={{background:msg.bad?'#FCE7E5':'#E0F3EA',color:msg.bad?'#E5564B':'#1E9E6A',borderRadius:9,padding:'9px 12px',fontSize:13,marginBottom:8}}>{msg.text}</div>}
+    <div style={{display:'flex',justifyContent:'flex-end',gap:8,marginTop:6}}>
+      <Btn variant="ghost" onClick={()=>{onClose();reset();}}>Cancelar</Btn>
+      <Btn icon={loading?undefined:Check} onClick={save} disabled={loading}>{loading?<><Spinner size={14} color="#fff"/>Guardando…</>:'Guardar'}</Btn>
+    </div>
+  </Modal>;
+}
+
 /* ============================================================ ADMIN: BENCHMARK ============================================================ */
 function AdminBenchmark({db}){
   const [data,setData]=useState(null); const [loading,setLoading]=useState(false); const [err,setErr]=useState(false);
@@ -1360,7 +1407,7 @@ function Shell({nav,active,setActive,topRight,brandSub,children,accentName}){
 
 function AdminApp({db,update,onLogout,openClient}){
   useRealtimeSurvey(update);
-  const [view,setView]=useState('clientes');
+  const [view,setView]=useState('clientes'); const [chgPwd,setChgPwd]=useState(false);
   const nav=[
     {key:'clientes',label:'Clientes',icon:Building2},
     {key:'usuarios',label:'Usuarios y accesos',icon:ShieldCheck},
@@ -1368,18 +1415,19 @@ function AdminApp({db,update,onLogout,openClient}){
     {key:'benchmark',label:'Benchmark',icon:BarChart2},
     {key:'cross',label:'Cross-sell IA',icon:Sparkles},
   ];
-  return <Shell nav={nav} active={view} setActive={setView} accentName="ADMINISTRACIÓN" brandSub="PromotIA · Delenio People"
-    topRight={<><Tag tone="brand"><ShieldCheck size={12} style={{marginRight:4,verticalAlign:'-2px'}}/>Admin</Tag><Btn size="sm" variant="ghost" icon={LogOut} onClick={onLogout}>Salir</Btn></>}>
+  return <><ChangePasswordModal open={chgPwd} onClose={()=>setChgPwd(false)}/>
+  <Shell nav={nav} active={view} setActive={setView} accentName="ADMINISTRACIÓN" brandSub="PromotIA · Delenio People"
+    topRight={<><Tag tone="brand"><ShieldCheck size={12} style={{marginRight:4,verticalAlign:'-2px'}}/>Admin</Tag><Btn size="sm" variant="ghost" icon={Settings} onClick={()=>setChgPwd(true)}>Contraseña</Btn><Btn size="sm" variant="ghost" icon={LogOut} onClick={onLogout}>Salir</Btn></>}>
     {view==='clientes'&&<AdminClientes db={db} update={update} goClient={openClient}/>}
     {view==='usuarios'&&<AdminUsuarios db={db} update={update}/>}
     {view==='uso'&&<AdminUso db={db}/>}
     {view==='benchmark'&&<AdminBenchmark db={db}/>}
     {view==='cross'&&<AdminCrossSell db={db}/>}
-  </Shell>;
+  </Shell></>;
 }
 
 function ClientAppShell({db,update,clientId,onLogout,fromAdmin,backToAdmin}){
-  const [view,setView]=useState('resumen');
+  const [view,setView]=useState('resumen'); const [chgPwd,setChgPwd]=useState(false);
   const c=db.clients.find(x=>x.id===clientId);
   const nav=[
     {key:'historico',label:'Dashboard histórico',icon:BarChart3},
@@ -1390,9 +1438,11 @@ function ClientAppShell({db,update,clientId,onLogout,fromAdmin,backToAdmin}){
     {key:'contexto',label:'Mi empresa',icon:Package},
     {key:'plan',label:'Plan de acción',icon:ClipboardList},
   ];
-  return <Shell nav={nav} active={view} setActive={setView} accentName={(c?.name||'CLIENTE').toUpperCase()} brandSub={c?.name}
+  return <><ChangePasswordModal open={chgPwd} onClose={()=>setChgPwd(false)}/>
+  <Shell nav={nav} active={view} setActive={setView} accentName={(c?.name||'CLIENTE').toUpperCase()} brandSub={c?.name}
     topRight={<>
       <span style={{display:'inline-flex',alignItems:'center',gap:7,fontSize:13,color:C.tx2}}><span style={{display:'grid',placeItems:'center',width:28,height:28,borderRadius:8,background:C.grad,color:'#fff',fontWeight:700,fontFamily:DISP,fontSize:13}}>{c?.name[0]}</span>{c?.name}</span>
+      {!fromAdmin&&<Btn size="sm" variant="ghost" icon={Settings} onClick={()=>setChgPwd(true)}>Contraseña</Btn>}
       {fromAdmin? <Btn size="sm" variant="ghost" icon={ArrowLeft} onClick={backToAdmin}>Volver a admin</Btn> : <Btn size="sm" variant="ghost" icon={LogOut} onClick={onLogout}>Salir</Btn>}
     </>}>
     {view==='historico'&&<ClientHistorico db={db} clientId={clientId}/>}
@@ -1402,7 +1452,7 @@ function ClientAppShell({db,update,clientId,onLogout,fromAdmin,backToAdmin}){
     {view==='informe'&&<ClientInforme db={db} clientId={clientId}/>}
     {view==='contexto'&&<ClientContexto db={db} clientId={clientId} update={update}/>}
     {view==='plan'&&<ClientPlan db={db} clientId={clientId} update={update}/>}
-  </Shell>;
+  </Shell></>;
 }
 
 /* ============================================================ ROOT ============================================================ */
