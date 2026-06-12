@@ -467,163 +467,72 @@ function AdminClientes({db,update,goClient}){
 }
 
 /* ============================================================ ADMIN: CARGA NPS ============================================================ */
-function AdminCarga({db,update}){
-  const [cid,setCid]=useState(db.clients[0]?.id||'');
+function AdminLinks({db,update}){
   const now=new Date();
   const [year,setYear]=useState(now.getFullYear()); const [month,setMonth]=useState(now.getMonth()+1);
-  const [mode,setMode]=useState('excel'); const [toast,setToast]=useState(null);
-  const cd=db.data[cid]; const c=db.clients.find(x=>x.id===cid);
-  const mKey=`${year}-${String(month).padStart(2,'0')}`;
-  const existing=cd?.months?.find(m=>m.month===mKey);
+  const [toast,setToast]=useState(null); const [importing,setImporting]=useState({});
   const flash=t=>{ setToast(t); setTimeout(()=>setToast(null),3200); };
+  const mKey=`${year}-${String(month).padStart(2,'0')}`;
 
-  function downloadTemplate(){
-    const cols=['Segmento','Sector','Región','NPS (0-10)','Comentario / motivo'];
-    const ws=XLSX.utils.aoa_to_sheet([cols, ['Enterprise','Retail','AMBA','','']]);
-    ws['!cols']=cols.map(c=>({wch:Math.max(14,c.length+4)}));
-    const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'NPS');
-    const info=XLSX.utils.aoa_to_sheet([['PromotIA · Plantilla de carga NPS'],['Cliente',c?.name||''],['Período',`${MESLONG[month]} ${year}`],[''],
-      ['Pregunta única (metodología NPS)','¿Qué tan probable es que recomiendes a la empresa a un colega o socio? (0 a 10)'],
-      ['Clasificación','Detractores 0-6 · Pasivos 7-8 · Promotores 9-10'],['Comentario','Motivo principal del puntaje (texto libre, opcional pero recomendado)'],
-      ['Segmento / Sector / Región','Opcionales — sirven para segmentar el NPS. No agregan otra pregunta.'],
-      ['','Una fila por cliente B2B encuestado. No cambies los encabezados.']]);
-    XLSX.utils.book_append_sheet(wb,info,'Instrucciones');
-    XLSX.writeFile(wb, `PromotIA_${c?.code||'cliente'}_${mKey}.xlsx`);
+  async function importClient(c){
+    setImporting(p=>({...p,[c.id]:true}));
+    try{
+      const r=await fetch(`/api/survey-import?clientId=${c.id}&month=${mKey}`);
+      const d=await r.json();
+      if(d.error){ flash({bad:true,msg:d.error}); setImporting(p=>({...p,[c.id]:false})); return; }
+      if(!d.total){ flash({bad:false,msg:`Sin respuestas nuevas para ${c.name} en ${MESLONG[month]} ${year}.`}); setImporting(p=>({...p,[c.id]:false})); return; }
+      update(db=>{ const cc=db.data[c.id]; if(!cc.months)cc.months=[]; let mo=cc.months.find(m=>m.month===mKey);
+        if(mo){ mo.responses.push(...d.responses); mo.sent=(mo.sent||0)+d.responses.length; }
+        else { cc.months.push({month:mKey,sent:d.responses.length,responses:d.responses}); }
+      });
+      flash({bad:false,msg:`${d.total} respuestas de ${c.name} importadas al dashboard.`});
+    }catch(e){ flash({bad:true,msg:'Error al conectar.'}); }
+    setImporting(p=>({...p,[c.id]:false}));
   }
-  function ingest(rows){
-    const sample=rows[0]||{};
-    const find=t=>Object.keys(sample).find(h=>norm(h).includes(t));
-    const npsKey=find('nps')||find('puntaje')||find('recomend');
-    const comKey=find('coment')||find('motivo');
-    const segKey=find('segmento'), secKey=find('sector'), regKey=find('region');
-    const responses=[];
-    rows.forEach(row=>{
-      const v=npsKey?row[npsKey]:''; if(v===''||v==null||isNaN(+v)) return;
-      const e=Math.max(0,Math.min(10,Math.round(+v)));
-      const r={e}; if(comKey&&row[comKey])r.c=String(row[comKey]).trim();
-      const d={}; if(segKey&&row[segKey])d.Segmento=String(row[segKey]).trim(); if(secKey&&row[secKey])d.Sector=String(row[secKey]).trim(); if(regKey&&row[regKey])d['Región']=String(row[regKey]).trim();
-      if(Object.keys(d).length)r.d=d;
-      responses.push(r);
-    });
-    if(!responses.length){ flash({bad:true,msg:'No se detectaron puntajes NPS válidos. ¿Usaste la plantilla?'}); return; }
-    update(d=>{ const cc=d.data[cid]; if(!cc.months)cc.months=[]; let mo=cc.months.find(m=>m.month===mKey);
-      if(mo){ mo.responses.push(...responses); mo.sent=(mo.sent||0)+responses.length; } else { cc.months.push({month:mKey,sent:responses.length,responses}); } });
-    flash({bad:false,msg:`${responses.length} respuestas NPS cargadas en ${MESLONG[month]} ${year}.`});
-  }
-  function onFile(ev){ const f=ev.target.files?.[0]; if(!f)return; const rd=new FileReader();
-    rd.onload=e=>{ try{ const wb=XLSX.read(e.target.result,{type:'array'}); const ws=wb.Sheets['NPS']||wb.Sheets[wb.SheetNames[0]]; const rows=XLSX.utils.sheet_to_json(ws,{defval:''}); ingest(rows); }catch(err){ flash({bad:true,msg:'Error al leer el archivo.'}); } };
-    rd.readAsArrayBuffer(f); ev.target.value=''; }
 
   return <div>
-    <Section title="Carga de NPS" hint="Importá la medición del mes por Excel o cargá respuestas a mano" icon={Upload}/>
-    <Card style={{padding:18}}>
-      <div style={{display:'grid',gridTemplateColumns:'2fr 1fr 1fr',gap:12}}>
-        <Field label="Cliente"><Select value={cid} onChange={e=>setCid(e.target.value)}>{db.clients.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</Select></Field>
-        <Field label="Mes"><Select value={month} onChange={e=>setMonth(+e.target.value)}>{Array.from({length:12},(_,i)=>i+1).map(m=><option key={m} value={m}>{MESLONG[m]}</option>)}</Select></Field>
-        <Field label="Año"><Select value={year} onChange={e=>setYear(+e.target.value)}>{[2024,2025,2026].map(y=><option key={y} value={y}>{y}</option>)}</Select></Field>
-      </div>
-      <div style={{background:C.surface,borderRadius:14,padding:'13px 15px',display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
-        <CalendarDays size={16} style={{color:C.primary}}/>
-        <span style={{fontSize:12.5,color:C.tx2}}>Métrica del mes:</span>
-        <Tag tone="brand">NPS (1 pregunta · 0-10)</Tag><Tag>Comentario abierto</Tag><Tag>Segmento · Sector · Región (opcional)</Tag>
-        {existing&&<Tag tone="neutral" style={{marginLeft:'auto'}}>{existing.responses.length} ya cargadas</Tag>}
+    <Section title="Links de encuesta" hint="Cada cliente tiene su link único — los contactos responden sin crear cuenta" icon={MessageSquare}/>
+
+    <Card style={{padding:16,marginBottom:18}}>
+      <div style={{display:'flex',alignItems:'center',gap:12,flexWrap:'wrap'}}>
+        <span style={{fontSize:13,fontWeight:600,color:C.tx2}}>Importar respuestas del mes:</span>
+        <Select value={month} onChange={e=>setMonth(+e.target.value)} style={{width:130}}>{Array.from({length:12},(_,i)=>i+1).map(m=><option key={m} value={m}>{MESLONG[m]}</option>)}</Select>
+        <Select value={year} onChange={e=>setYear(+e.target.value)} style={{width:90}}>{[2024,2025,2026].map(y=><option key={y} value={y}>{y}</option>)}</Select>
       </div>
     </Card>
 
-    <div style={{display:'flex',gap:8,margin:'18px 0 14px',flexWrap:'wrap'}}>
-      <Btn variant={mode==='excel'?'primary':'ghost'} size="sm" icon={FileSpreadsheet} onClick={()=>setMode('excel')}>Importar Excel</Btn>
-      <Btn variant={mode==='manual'?'primary':'ghost'} size="sm" icon={Pencil} onClick={()=>setMode('manual')}>Carga manual</Btn>
-      <Btn variant={mode==='survey'?'primary':'ghost'} size="sm" icon={MessageSquare} onClick={()=>setMode('survey')}>Desde link de encuesta</Btn>
-    </div>
-
     {toast&&<div className="fu" style={{display:'flex',alignItems:'center',gap:9,padding:'11px 14px',borderRadius:12,marginBottom:14,fontSize:13,fontWeight:600,background:toast.bad?C.criticoBg:C.excBg,color:toast.bad?C.critico:C.exc}}>{toast.bad?<AlertTriangle size={16}/>:<Check size={16}/>}{toast.msg}</div>}
 
-    {mode==='excel'? (
-      <Card style={{padding:24,textAlign:'center'}}>
-        <div style={{display:'grid',placeItems:'center',width:56,height:56,borderRadius:16,background:C.lila3,color:C.primary,margin:'0 auto 14px'}}><FileSpreadsheet size={26}/></div>
-        <div style={{fontWeight:700,fontSize:16}} className="disp">Importá respuestas por Excel</div>
-        <div style={{fontSize:13,color:C.tx2,maxWidth:460,margin:'8px auto 20px',lineHeight:1.5}}>1) Descargá la plantilla · 2) Una fila por cliente B2B encuestado con su puntaje 0-10 y su comentario · 3) Subila acá. Las columnas se mapean solas.</div>
-        <div style={{display:'flex',gap:10,justifyContent:'center',flexWrap:'wrap'}}>
-          <Btn variant="ghost" icon={Download} onClick={downloadTemplate}>Descargar plantilla</Btn>
-          <label><Btn icon={Upload} onClick={()=>document.getElementById('npsfile').click()}>Subir archivo</Btn><input id="npsfile" type="file" accept=".xlsx,.xls,.csv" onChange={onFile} style={{display:'none'}}/></label>
-        </div>
-      </Card>
-    ) : mode==='manual' ? <ManualEntry onAdd={(r)=>{ update(d=>{ const cc=d.data[cid]; if(!cc.months)cc.months=[]; let mo=cc.months.find(m=>m.month===mKey); if(mo){mo.responses.push(r); mo.sent=(mo.sent||0)+1;} else {cc.months.push({month:mKey,sent:1,responses:[r]});} }); flash({bad:false,msg:'Respuesta agregada.'}); }}/>
-    : <SurveyImport clientId={cid} clientName={c?.name} mKey={mKey} month={month} year={year} update={update} flash={flash}/>}
+    <div style={{display:'flex',flexDirection:'column',gap:12}}>
+      {db.clients.map(c=>{
+        const link=`${window.location.origin}/encuesta/${c.id}`;
+        const [copied,setCopied]=useState(false);
+        const copy=()=>{ navigator.clipboard.writeText(link); setCopied(true); setTimeout(()=>setCopied(false),2000); };
+        const existing=db.data[c.id]?.months?.find(m=>m.month===mKey);
+        return <Card key={c.id} style={{padding:18}}>
+          <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:12,flexWrap:'wrap'}}>
+            <div style={{display:'grid',placeItems:'center',width:38,height:38,borderRadius:10,background:C.grad,color:'#fff',fontWeight:700,fontFamily:DISP,fontSize:16,flexShrink:0}}>{c.name[0]}</div>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontWeight:700,fontSize:15}} className="disp">{c.name}</div>
+              <div style={{fontSize:11.5,color:C.tx3}}>{c.code}{c.sector?` · ${c.sector}`:''}</div>
+            </div>
+            {existing&&<Tag tone="good">{existing.responses.length} resp. {MESLONG[month]}</Tag>}
+          </div>
+          <div style={{display:'flex',gap:8,alignItems:'center',background:C.surface,borderRadius:10,padding:'9px 12px',flexWrap:'wrap'}}>
+            <span style={{fontSize:12,color:C.tx2,flex:1,wordBreak:'break-all',minWidth:0}}>{link}</span>
+            <button onClick={copy} style={{display:'flex',alignItems:'center',gap:5,padding:'5px 10px',borderRadius:7,border:`1px solid ${copied?C.exc:C.line}`,background:copied?C.excBg:'#fff',color:copied?C.exc:C.primary,fontSize:12,fontWeight:700,cursor:'pointer',transition:'all .2s',flexShrink:0}}>
+              {copied?<Check size={12}/>:<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>}
+              {copied?'¡Copiado!':'Copiar'}
+            </button>
+            <Btn size="sm" icon={importing[c.id]?RotateCcw:Download} onClick={()=>importClient(c)} disabled={!!importing[c.id]}>
+              {importing[c.id]?'Importando…':`Importar ${MESLONG[month]}`}
+            </Btn>
+          </div>
+        </Card>;
+      })}
+      {!db.clients.length&&<Empty icon={MessageSquare} title="Sin clientes aún" sub="Creá un cliente primero desde la sección Clientes."/>}
+    </div>
   </div>;
-}
-
-function SurveyImport({clientId,clientName,mKey,month,year,update,flash}){
-  const [loading,setLoading]=useState(false);
-  const [preview,setPreview]=useState(null);
-  const link=`${window.location.origin}/encuesta/${clientId}`;
-  const [copied,setCopied]=useState(false);
-  const copyLink=()=>{ navigator.clipboard.writeText(link); setCopied(true); setTimeout(()=>setCopied(false),2000); };
-
-  async function fetchResponses(){
-    setLoading(true); setPreview(null);
-    try{
-      const r=await fetch(`/api/survey-import?clientId=${clientId}&month=${mKey}`);
-      const d=await r.json();
-      if(d.error){ flash({bad:true,msg:d.error}); setLoading(false); return; }
-      setPreview(d);
-    }catch(e){ flash({bad:true,msg:'Error al conectar con el servidor.'}); }
-    setLoading(false);
-  }
-
-  function importAll(){
-    if(!preview?.responses?.length) return;
-    update(d=>{ const cc=d.data[clientId]; if(!cc.months)cc.months=[]; let mo=cc.months.find(m=>m.month===mKey);
-      if(mo){ mo.responses.push(...preview.responses); mo.sent=(mo.sent||0)+preview.responses.length; }
-      else { cc.months.push({month:mKey,sent:preview.responses.length,responses:preview.responses}); }
-    });
-    flash({bad:false,msg:`${preview.responses.length} respuestas importadas al dashboard.`});
-    setPreview(null);
-  }
-
-  const MESLONG2=['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
-  return <Card style={{padding:24}}>
-    <div style={{display:'grid',placeItems:'center',width:56,height:56,borderRadius:16,background:C.lila3,color:C.primary,margin:'0 auto 14px'}}><MessageSquare size={26}/></div>
-    <div style={{fontWeight:700,fontSize:16,textAlign:'center',marginBottom:6}} className="disp">Link de encuesta para {clientName}</div>
-    <div style={{fontSize:13,color:C.tx2,textAlign:'center',marginBottom:18,lineHeight:1.5}}>Compartí este link con los contactos del cliente. Responden sin necesitar cuenta.</div>
-    <div style={{display:'flex',gap:8,alignItems:'center',background:C.surface,borderRadius:12,padding:'10px 14px',marginBottom:20,flexWrap:'wrap'}}>
-      <span style={{fontSize:12.5,color:C.tx2,flex:1,wordBreak:'break-all'}}>{link}</span>
-      <button onClick={copyLink} style={{display:'flex',alignItems:'center',gap:5,padding:'6px 12px',borderRadius:8,border:`1px solid ${copied?C.exc:C.line}`,background:copied?C.excBg:'#fff',color:copied?C.exc:C.primary,fontSize:12,fontWeight:700,cursor:'pointer',transition:'all .2s',flexShrink:0}}>
-        {copied?<Check size={13}/>:<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>}
-        {copied?'¡Copiado!':'Copiar link'}
-      </button>
-    </div>
-    <div style={{textAlign:'center'}}>
-      <Btn icon={loading?RotateCcw:Download} onClick={fetchResponses} disabled={loading}>{loading?'Buscando...':'Ver respuestas de '+MESLONG2[month]+' '+year}</Btn>
-    </div>
-    {preview&&<div style={{marginTop:20}}>
-      <div style={{background:preview.total>0?C.excBg:C.lila4,borderRadius:12,padding:'12px 16px',textAlign:'center',marginBottom:16}}>
-        <span style={{fontWeight:700,fontSize:15,color:preview.total>0?C.exc:C.tx2}}>{preview.total} respuestas nuevas</span>
-        <span style={{fontSize:13,color:C.tx2}}> en el link de encuesta para {MESLONG2[month]} {year}</span>
-      </div>
-      {preview.total>0&&<div style={{display:'flex',justifyContent:'center'}}><Btn icon={Check} onClick={importAll}>Importar al dashboard</Btn></div>}
-    </div>}
-  </Card>;
-}
-
-function ManualEntry({onAdd}){
-  const [e,setE]=useState(null); const [c,setC]=useState(''); const [seg,setSeg]=useState(''); const [sec,setSec]=useState(''); const [reg,setReg]=useState('');
-  const add=()=>{ if(e==null)return; const r={e}; if(c)r.c=c; const d={}; if(seg)d.Segmento=seg; if(sec)d.Sector=sec; if(reg)d['Región']=reg; if(Object.keys(d).length)r.d=d; onAdd(r); setE(null); setC(''); };
-  const catOf=v=>v>=9?'Promotor':v>=7?'Pasivo':'Detractor';
-  const catCol=v=>v>=9?C.promotor:v>=7?C.pasivo:C.detractor;
-  return <Card style={{padding:20}}>
-    <div style={{fontWeight:700,fontSize:14,marginBottom:4}} className="disp">Nueva respuesta NPS</div>
-    <div style={{fontSize:12.5,color:C.tx2,marginBottom:14}}>¿Qué tan probable es que recomiende a la empresa a un colega o socio?</div>
-    <div style={{display:'flex',gap:5,marginBottom:8}}>{Array.from({length:11},(_,v)=>v).map(v=> <button key={v} onClick={()=>setE(v)} style={{flex:1,padding:'12px 0',borderRadius:9,fontWeight:700,fontSize:14,cursor:'pointer',border:`1px solid ${e===v?catCol(v):C.line}`,background:e===v?catCol(v):'#fff',color:e===v?'#fff':C.tx2}}>{v}</button>)}</div>
-    {e!=null&&<div style={{fontSize:12.5,marginBottom:14}}>Clasificación: <b style={{color:catCol(e)}}>{catOf(e)}</b></div>}
-    <Field label="Comentario / motivo del puntaje"><Textarea value={c} onChange={ev=>setC(ev.target.value)} placeholder="Texto libre del cliente B2B (opcional pero recomendado para el análisis con IA)." style={{minHeight:70}}/></Field>
-    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12}}>
-      <Field label="Segmento"><Select value={seg} onChange={ev=>setSeg(ev.target.value)}><option value="">—</option>{SEGMENTOS.map(s=><option key={s}>{s}</option>)}</Select></Field>
-      <Field label="Sector"><Input value={sec} onChange={ev=>setSec(ev.target.value)} placeholder="Opcional"/></Field>
-      <Field label="Región"><Input value={reg} onChange={ev=>setReg(ev.target.value)} placeholder="Opcional"/></Field>
-    </div>
-    <div style={{display:'flex',justifyContent:'flex-end'}}><Btn icon={Plus} onClick={add} disabled={e==null}>Agregar respuesta</Btn></div>
-  </Card>;
 }
 
 /* ============================================================ ADMIN: USUARIOS ============================================================ */
@@ -1244,7 +1153,7 @@ function AdminApp({db,update,onLogout,openClient}){
   const [view,setView]=useState('clientes');
   const nav=[
     {key:'clientes',label:'Clientes',icon:Building2},
-    {key:'carga',label:'Carga de NPS',icon:Upload},
+    {key:'carga',label:'Links de encuesta',icon:MessageSquare},
     {key:'usuarios',label:'Usuarios y accesos',icon:ShieldCheck},
     {key:'uso',label:'Uso',icon:Activity},
     {key:'cross',label:'Cross-sell IA',icon:Sparkles},
