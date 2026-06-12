@@ -31,14 +31,12 @@ function LoadingScreen() {
   )
 }
 
-export default function App() {
-  // Rutas públicas — sin auth
-  const path = window.location.pathname
-  const surveyMatch = path.match(/^\/encuesta\/(.+)/)
-  if (surveyMatch) return <SurveyPage clientId={surveyMatch[1]} />
-  const portalMatch = path.match(/^\/portal\/(.+)/)
-  if (portalMatch) return <ClientPortal clientId={portalMatch[1]} onLogout={() => window.location.href = '/'} />
+// Detectar rutas públicas antes de montar componentes con hooks
+const path = window.location.pathname
+const surveyMatch = path.match(/^\/encuesta\/(.+)/)
+const portalMatch = path.match(/^\/portal\/(.+)/)
 
+export default function App() {
   const [user, setUser] = useState(null)
   const [clientInfo, setClientInfo] = useState(null) // { clientCode, clientName } para viewers
   const [subscriptionStatus, setSubscriptionStatus] = useState(null)
@@ -93,6 +91,10 @@ export default function App() {
   }
 
   async function handleLogout() { await supabase.auth.signOut() }
+
+  // Rutas públicas — sin auth (después de todos los hooks)
+  if (surveyMatch) return <SurveyPage clientId={surveyMatch[1]} />
+  if (portalMatch) return <ClientPortal clientId={portalMatch[1]} onLogout={() => window.location.href = '/'} />
 
   if (loading) return <LoadingScreen />
   if (page === 'login') return <LoginPage onSuccess={() => setLoading(true)} onRegister={() => setPage('register')}/>

@@ -1,16 +1,6 @@
 import { useState, useEffect } from 'react'
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Cell } from 'recharts'
-
-const C = {
-  tx: '#1A0A1C', tx2: '#5E4E64', tx3: '#A99BB0', primary: '#73017B', magenta: '#E40993',
-  lila3: '#EFD9F1', lila4: '#F7ECF8', line: '#E7DEEC', surface: '#F7F2FA',
-  grad: 'linear-gradient(120deg,#73017B 0%,#A8108F 55%,#E40993 100%)',
-  exc: '#1E9E6A', excBg: '#E0F3EA', critico: '#E5564B', criticoBg: '#FCE7E5',
-  mejorar: '#E8A23D', mejorarBg: '#FCF1DF',
-}
-const DISP = "'Quicksand','Trebuchet MS',sans-serif"
-const BODY = "'Archivo','Segoe UI',system-ui,-apple-system,sans-serif"
-const MES = ['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
+import { C, DISP, BODY, MES } from '../lib/tokens'
 
 function npsCalc(responses) {
   if (!responses?.length) return null
@@ -43,9 +33,9 @@ export default function ClientPortal({ clientId, clientName, onLogout }) {
 
   useEffect(() => {
     fetch(`/api/client-portal?clientId=${clientId}`)
-      .then(r => r.json())
-      .then(d => { if (d.months) setMonths(d.months); setLoading(false) })
-      .catch(() => { setError('Error al cargar los datos'); setLoading(false) })
+      .then(r => { if (!r.ok) throw new Error(r.status); return r.json() })
+      .then(d => { if (d.error) throw new Error(d.error); if (d.months) setMonths(d.months); setLoading(false) })
+      .catch(e => { setError('Error al cargar los datos: ' + e.message); setLoading(false) })
   }, [clientId])
 
   // Todos los datos combinados

@@ -11,7 +11,8 @@ export default async function handler(req, res) {
   if (req.method === 'GET') {
     const { clientId } = req.query
     if (!clientId) return res.status(400).json({ error: 'clientId requerido' })
-    const { data } = await supabase.from('survey_configs').select('*').eq('client_id', clientId).maybeSingle()
+    const { data, error } = await supabase.from('survey_configs').select('*').eq('client_id', clientId).maybeSingle()
+    if (error) return res.status(500).json({ error: error.message })
     return res.status(200).json(data || {})
   }
 
