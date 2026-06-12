@@ -1218,7 +1218,6 @@ function AdminApp({db,update,onLogout,openClient}){
   const [view,setView]=useState('clientes');
   const nav=[
     {key:'clientes',label:'Clientes',icon:Building2},
-    {key:'carga',label:'Links de encuesta',icon:MessageSquare},
     {key:'usuarios',label:'Usuarios y accesos',icon:ShieldCheck},
     {key:'uso',label:'Uso',icon:Activity},
     {key:'cross',label:'Cross-sell IA',icon:Sparkles},
@@ -1226,7 +1225,7 @@ function AdminApp({db,update,onLogout,openClient}){
   return <Shell nav={nav} active={view} setActive={setView} accentName="ADMINISTRACIÓN" brandSub="PromotIA · Delenio People"
     topRight={<><Tag tone="brand"><ShieldCheck size={12} style={{marginRight:4,verticalAlign:'-2px'}}/>Admin</Tag><Btn size="sm" variant="ghost" icon={LogOut} onClick={onLogout}>Salir</Btn></>}>
     {view==='clientes'&&<AdminClientes db={db} update={update} goClient={openClient}/>}
-    {view==='carga'&&<AdminCarga db={db} update={update}/>}
+
     {view==='usuarios'&&<AdminUsuarios db={db} update={update}/>}
     {view==='uso'&&<AdminUso db={db}/>}
     {view==='cross'&&<AdminCrossSell db={db}/>}
