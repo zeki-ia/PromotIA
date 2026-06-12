@@ -1,7 +1,8 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Cell, ReferenceLine } from 'recharts';
-import { TrendingUp, TrendingDown, AlertTriangle, Lightbulb, Target, Upload, ChevronRight, ChevronDown, Users, Activity, Gauge, Download, Sparkles, Building2, Plus, Trash2, Pencil, Check, X, Eye, ArrowLeft, CalendarDays, RotateCcw, LogOut, LayoutDashboard, FileSpreadsheet, MessageSquare, ClipboardList, BarChart3, ShieldCheck, Wand2, Heart, Star, Inbox, Briefcase, ThumbsUp, ThumbsDown, Minus, Package, Quote, Layers } from 'lucide-react';
+import { TrendingUp, TrendingDown, AlertTriangle, Lightbulb, Target, Upload, ChevronRight, ChevronDown, Users, Activity, Gauge, Download, Sparkles, Building2, Plus, Trash2, Pencil, Check, X, Eye, ArrowLeft, CalendarDays, RotateCcw, LogOut, LayoutDashboard, FileSpreadsheet, MessageSquare, ClipboardList, BarChart3, ShieldCheck, Wand2, Heart, Star, Inbox, Briefcase, ThumbsUp, ThumbsDown, Minus, Package, Quote, Layers, QrCode, Printer, Settings } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { supabase } from './lib/supabase';
 
 /* ============================ PERSISTENCIA (autocontenida) ============================
    Fuente de verdad: función serverless /api/state (Supabase, credenciales en el servidor).
@@ -202,6 +203,12 @@ function GlobalStyle(){
     .lift{transition:transform .15s ease, box-shadow .15s ease}
     .lift:hover{transform:translateY(-2px);box-shadow:0 12px 28px -12px rgba(115,1,123,.35)}
     .promotia a{color:${C.primary}}
+    @media print{
+      .promotia aside, .promotia header, .promotia button, .promotia .no-print{display:none!important}
+      .promotia main{padding:0!important}
+      body{background:#fff!important}
+      .promotia{font-size:12px}
+    }
   `}</style>;
 }
 
@@ -396,12 +403,57 @@ function CopyLinkBtn({clientId}){
   </button>;
 }
 
+/* ---- QR Modal ---- */
+function QRModal({url,name,onClose}){
+  const canvasRef=useRef(null);
+  useEffect(()=>{
+    import('qrcode').then(QR=>{
+      QR.toCanvas(canvasRef.current,url,{width:220,margin:2,color:{dark:'#1A0A1C',light:'#FFFFFF'}});
+    }).catch(()=>{});
+  },[url]);
+  function download(){
+    const a=document.createElement('a'); a.href=canvasRef.current.toDataURL('image/png'); a.download=`qr-${name||'encuesta'}.png`; a.click();
+  }
+  return <div style={{position:'fixed',inset:0,background:'rgba(26,10,28,.55)',backdropFilter:'blur(4px)',display:'grid',placeItems:'center',zIndex:9999}} onClick={onClose}>
+    <div style={{background:'#fff',borderRadius:20,padding:'28px 24px',maxWidth:300,width:'90%',textAlign:'center'}} onClick={e=>e.stopPropagation()}>
+      <div style={{fontFamily:DISP,fontWeight:700,fontSize:16,color:C.tx,marginBottom:4}}>QR de encuesta</div>
+      <div style={{fontSize:12.5,color:C.tx3,marginBottom:16}}>{name}</div>
+      <canvas ref={canvasRef} style={{borderRadius:12,border:`1px solid ${C.line}`}}/>
+      <div style={{display:'flex',gap:8,marginTop:16,justifyContent:'center'}}>
+        <button onClick={download} style={{display:'flex',alignItems:'center',gap:5,padding:'8px 14px',borderRadius:9,border:`1px solid ${C.line}`,background:C.surface,color:C.primary,fontSize:13,fontWeight:700,cursor:'pointer',fontFamily:DISP}}><Download size={14}/>Descargar PNG</button>
+        <button onClick={onClose} style={{padding:'8px 14px',borderRadius:9,border:`1px solid ${C.line}`,background:'#fff',color:C.tx2,fontSize:13,fontWeight:600,cursor:'pointer',fontFamily:DISP}}>Cerrar</button>
+      </div>
+    </div>
+  </div>;
+}
+
+/* ---- Realtime hook: escucha survey_responses y las agrega automáticamente ---- */
+function useRealtimeSurvey(update){
+  useEffect(()=>{
+    const channel=supabase.channel('survey_rt')
+      .on('postgres_changes',{event:'INSERT',schema:'public',table:'survey_responses'},({new:r})=>{
+        const d=new Date(r.created_at);
+        const mKey=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+        const row={e:r.score};
+        if(r.comment)row.c=r.comment;
+        const dims={}; if(r.segmento)dims.Segmento=r.segmento; if(r.sector)dims.Sector=r.sector; if(r.region)dims['Región']=r.region;
+        if(Object.keys(dims).length)row.d=dims;
+        update(db=>{ if(!db.data[r.client_id])return; const cc=db.data[r.client_id]; if(!cc.months)cc.months=[]; let mo=cc.months.find(m=>m.month===mKey); if(mo){mo.responses.push(row); mo.sent=(mo.sent||0)+1;} else {cc.months.push({month:mKey,sent:1,responses:[row]});} });
+      })
+      .subscribe();
+    return ()=>{ supabase.removeChannel(channel); };
+  },[]);
+}
+
 function AdminClientes({db,update,goClient}){
-  const [edit,setEdit]=useState(null); const [del,setDel]=useState(null);
-  const blank={id:'',name:'',code:'',web:'',sector:'',contexto:'',productos:[''],propuesta:'',segmentos:[...SEGMENTOS],notas:''};
+  const [edit,setEdit]=useState(null); const [del,setDel]=useState(null); const [qr,setQr]=useState(null);
+  const blank={id:'',name:'',code:'',web:'',sector:'',contexto:'',productos:[''],propuesta:'',segmentos:[...SEGMENTOS],notas:'',surveyTitle:'',surveyColor:'#73017B',surveyLogo:'',surveyQuestion:'¿Qué tan probable es que nos recomiendes?'};
   const save=()=>{ const c={...edit, productos:(edit.productos||[]).map(s=>s.trim()).filter(Boolean)}; if(!c.name.trim())return;
-    update(d=>{ if(c.id){ const i=d.clients.findIndex(x=>x.id===c.id); d.clients[i]={...c}; }
-      else { const id=uid('c'); d.clients.push({...c,id,code:c.code||c.name.slice(0,3).toUpperCase()+'-'+Math.random().toString(36).slice(2,5).toUpperCase()}); d.data[id]={months:[]}; } });
+    let savedId=c.id;
+    update(d=>{ if(c.id){ const i=d.clients.findIndex(x=>x.id===c.id); d.clients[i]={...c}; savedId=c.id; }
+      else { savedId=uid('c'); d.clients.push({...c,id:savedId,code:c.code||c.name.slice(0,3).toUpperCase()+'-'+Math.random().toString(36).slice(2,5).toUpperCase()}); d.data[savedId]={months:[]}; } });
+    // Persistir config de encuesta en Supabase
+    setTimeout(()=>{ fetch('/api/survey-config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({clientId:savedId,title:c.surveyTitle,primaryColor:c.surveyColor,logoUrl:c.surveyLogo,question:c.surveyQuestion})}); },100);
     setEdit(null); };
   const setProd=(i,v)=>setEdit(e=>{ const p=[...(e.productos||[])]; p[i]=v; return {...e,productos:p}; });
   return <div>
@@ -427,6 +479,7 @@ function AdminClientes({db,update,goClient}){
           <div style={{display:'flex',gap:8,marginTop:14}}>
             <Btn size="sm" variant="soft" icon={Eye} onClick={()=>goClient(c.id)} style={{flex:1}}>Ver portal</Btn>
             <CopyLinkBtn clientId={c.id}/>
+            <IconBtn icon={QrCode} title="Ver QR" onClick={()=>setQr(c)}/>
           </div>
         </Card>
       ); })}
@@ -453,6 +506,15 @@ function AdminClientes({db,update,goClient}){
         </Field>
         <Field label="Propuesta de valor"><Textarea value={edit.propuesta} onChange={e=>setEdit({...edit,propuesta:e.target.value})} style={{minHeight:60}}/></Field>
         <Field label="Notas internas (Delenio)"><Textarea value={edit.notas} onChange={e=>setEdit({...edit,notas:e.target.value})} style={{minHeight:60}}/></Field>
+        <div style={{borderTop:`1px solid ${C.line}`,paddingTop:16,marginTop:4}}>
+          <div style={{display:'flex',alignItems:'center',gap:7,fontFamily:DISP,fontWeight:700,fontSize:13,color:C.primary,marginBottom:12}}><Settings size={14}/>Personalización de la encuesta</div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+            <Field label="Título / nombre visible"><Input value={edit.surveyTitle||''} onChange={e=>setEdit({...edit,surveyTitle:e.target.value})} placeholder="Ej: Nimbus Logística"/></Field>
+            <Field label="Color principal"><div style={{display:'flex',gap:8,alignItems:'center'}}><input type="color" value={edit.surveyColor||'#73017B'} onChange={e=>setEdit({...edit,surveyColor:e.target.value})} style={{width:38,height:38,borderRadius:8,border:`1px solid ${C.line}`,padding:2,cursor:'pointer'}}/><span style={{fontSize:12,color:C.tx3}}>{edit.surveyColor||'#73017B'}</span></div></Field>
+          </div>
+          <Field label="URL del logo (opcional)" hint="Link directo a una imagen (PNG/SVG)"><Input value={edit.surveyLogo||''} onChange={e=>setEdit({...edit,surveyLogo:e.target.value})} placeholder="https://..."/></Field>
+          <Field label="Pregunta NPS personalizada"><Input value={edit.surveyQuestion||''} onChange={e=>setEdit({...edit,surveyQuestion:e.target.value})} placeholder="¿Qué tan probable es que nos recomiendes?"/></Field>
+        </div>
         <div style={{display:'flex',justifyContent:'flex-end',gap:8,marginTop:6}}><Btn variant="ghost" onClick={()=>setEdit(null)}>Cancelar</Btn><Btn icon={Check} onClick={save}>Guardar</Btn></div>
       </div>}
     </Modal>
@@ -463,6 +525,7 @@ function AdminClientes({db,update,goClient}){
         <div style={{display:'flex',justifyContent:'flex-end',gap:8}}><Btn variant="ghost" onClick={()=>setDel(null)}>Cancelar</Btn><Btn variant="danger" icon={Trash2} onClick={()=>{update(d=>{d.clients=d.clients.filter(x=>x.id!==del.id); delete d.data[del.id];}); setDel(null);}}>Eliminar</Btn></div>
       </div>}
     </Modal>
+    {qr&&<QRModal url={`${window.location.origin}/encuesta/${qr.id}`} name={qr.name} onClose={()=>setQr(null)}/>}
   </div>;
 }
 
@@ -711,6 +774,7 @@ function ClientResumen({db,clientId}){
         <YearTabs years={years} year={year} setYear={setYear}/>
         <Select value={seg} onChange={e=>setSeg(e.target.value)} style={{width:'auto',padding:'8px 30px 8px 12px',fontSize:12.5}}><option value="">Todos los segmentos</option>{segs0.map(s=><option key={s}>{s}</option>)}</Select>
         {secs0.length>0&&<Select value={sec} onChange={e=>setSec(e.target.value)} style={{width:'auto',padding:'8px 30px 8px 12px',fontSize:12.5}}><option value="">Todos los sectores</option>{secs0.map(s=><option key={s}>{s}</option>)}</Select>}
+        <Btn size="sm" variant="ghost" icon={Printer} onClick={()=>window.print()}>Exportar PDF</Btn>
       </div>}/>
 
     <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:14}}>
@@ -1150,6 +1214,7 @@ function Shell({nav,active,setActive,topRight,brandSub,children,accentName}){
 }
 
 function AdminApp({db,update,onLogout,openClient}){
+  useRealtimeSurvey(update);
   const [view,setView]=useState('clientes');
   const nav=[
     {key:'clientes',label:'Clientes',icon:Building2},

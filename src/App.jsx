@@ -6,6 +6,7 @@ import RegisterPage from './pages/Register'
 import CheckoutPage from './pages/Checkout'
 import BlockedPage from './pages/Blocked'
 import SurveyPage from './pages/Survey'
+import ClientPortal from './pages/ClientPortal'
 
 const C = { primary: '#73017B', magenta: '#E40993', surface: '#F7F2FA' }
 const DISP = "'Quicksand','Trebuchet MS',sans-serif"
@@ -31,119 +32,73 @@ function LoadingScreen() {
 }
 
 export default function App() {
-  // Ruta pública de encuesta — sin auth
-  const surveyMatch = window.location.pathname.match(/^\/encuesta\/(.+)/)
+  // Rutas públicas — sin auth
+  const path = window.location.pathname
+  const surveyMatch = path.match(/^\/encuesta\/(.+)/)
   if (surveyMatch) return <SurveyPage clientId={surveyMatch[1]} />
+  const portalMatch = path.match(/^\/portal\/(.+)/)
+  if (portalMatch) return <ClientPortal clientId={portalMatch[1]} onLogout={() => window.location.href = '/'} />
 
   const [user, setUser] = useState(null)
-  const [subscriptionStatus, setSubscriptionStatus] = useState(null) // null | 'active' | 'trialing' | 'past_due' | 'canceled' | 'unpaid' | 'none'
+  const [clientInfo, setClientInfo] = useState(null) // { clientCode, clientName } para viewers
+  const [subscriptionStatus, setSubscriptionStatus] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [page, setPage] = useState('login') // login | register | checkout | blocked | app
+  const [page, setPage] = useState('login') // login | register | checkout | blocked | app | portal
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) {
-        setUser(session.user)
-        checkSubscription(session.user.id)
-      } else {
-        setLoading(false)
-      }
+      if (session?.user) { setUser(session.user); checkSubscription(session.user.id) }
+      else setLoading(false)
     })
-
     const { data: { subscription: authListener } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session?.user) {
-        setUser(session.user)
-        checkSubscription(session.user.id)
-      } else {
-        setUser(null)
-        setSubscriptionStatus(null)
-        setPage('login')
-        setLoading(false)
-      }
+      if (session?.user) { setUser(session.user); checkSubscription(session.user.id) }
+      else { setUser(null); setSubscriptionStatus(null); setPage('login'); setLoading(false) }
     })
-
     return () => authListener.unsubscribe()
   }, [])
 
   async function checkSubscription(userId) {
     try {
-      // Get user's role and company_id
       const { data: userRow } = await supabase
         .from('users')
-        .select('company_id, role')
+        .select('company_id, role, client_code, email')
         .eq('id', userId)
         .maybeSingle()
 
-      // Admin de Delenio — acceso directo sin chequeo de suscripción
+      // Admin Delenio — acceso directo
       if (userRow?.role === 'admin') {
-        setPage('app')
-        setLoading(false)
-        return
+        setPage('app'); setLoading(false); return
+      }
+
+      // Viewer (cliente de Delenio) — va al portal con sus datos
+      if (userRow?.role === 'viewer' && userRow?.client_code) {
+        setClientInfo({ clientCode: userRow.client_code, clientName: userRow.email })
+        setPage('portal'); setLoading(false); return
       }
 
       if (!userRow?.company_id) {
-        // New user — needs to choose a plan
-        setSubscriptionStatus('none')
-        setPage('checkout')
-        setLoading(false)
-        return
+        setSubscriptionStatus('none'); setPage('checkout'); setLoading(false); return
       }
 
-      // Check subscription status
       const { data: sub } = await supabase
-        .from('subscriptions')
-        .select('status')
-        .eq('company_id', userRow.company_id)
-        .maybeSingle()
-
+        .from('subscriptions').select('status').eq('company_id', userRow.company_id).maybeSingle()
       const status = sub?.status || 'none'
       setSubscriptionStatus(status)
-
-      if (!sub || status === 'canceled' || status === 'unpaid') {
-        setPage('blocked')
-      } else {
-        // active, trialing, past_due → allow access
-        setPage('app')
-      }
+      setPage(!sub || status === 'canceled' || status === 'unpaid' ? 'blocked' : 'app')
     } catch (e) {
       console.error('checkSubscription error:', e)
-      setPage('app') // fail open (don't lock out on DB error)
+      setPage('app')
     }
     setLoading(false)
   }
 
-  async function handleLogout() {
-    await supabase.auth.signOut()
-  }
+  async function handleLogout() { await supabase.auth.signOut() }
 
   if (loading) return <LoadingScreen />
-
-  if (page === 'login') return (
-    <LoginPage
-      onSuccess={() => { setLoading(true) }}
-      onRegister={() => setPage('register')}
-    />
-  )
-
-  if (page === 'register') return (
-    <RegisterPage
-      onBack={() => setPage('login')}
-      onSuccess={() => { setLoading(true) }}
-    />
-  )
-
-  if (page === 'checkout') return (
-    <CheckoutPage user={user} onLogout={handleLogout} />
-  )
-
-  if (page === 'blocked') return (
-    <BlockedPage
-      status={subscriptionStatus}
-      onLogout={handleLogout}
-      onRecheck={() => { setLoading(true); checkSubscription(user.id) }}
-    />
-  )
-
-  // page === 'app'
-  return <PromotIA autoAdmin={true} onLogout={handleLogout} />
+  if (page === 'login') return <LoginPage onSuccess={() => setLoading(true)} onRegister={() => setPage('register')}/>
+  if (page === 'register') return <RegisterPage onBack={() => setPage('login')} onSuccess={() => setLoading(true)}/>
+  if (page === 'checkout') return <CheckoutPage user={user} onLogout={handleLogout}/>
+  if (page === 'blocked') return <BlockedPage status={subscriptionStatus} onLogout={handleLogout} onRecheck={() => { setLoading(true); checkSubscription(user.id) }}/>
+  if (page === 'portal') return <ClientPortal clientId={clientInfo?.clientCode} clientName={clientInfo?.clientName} onLogout={handleLogout}/>
+  return <PromotIA autoAdmin={true} onLogout={handleLogout}/>
 }
