@@ -7,7 +7,7 @@
  */
 import { createClient } from '@supabase/supabase-js'
 
-const APP_URL = 'https://app.promotia.talenio.tech'
+const APP_URL = process.env.APP_URL || 'https://app.promotia.talenio.tech'
 
 function shouldSendToday(frequency) {
   const now = new Date()
@@ -63,7 +63,7 @@ export default async function handler(req, res) {
           method: 'POST',
           headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            from: 'PromotIA <nps@promotia.talenio.tech>',
+            from: process.env.RESEND_FROM || 'PromotIA <nps@promotia.talenio.tech>',
             to: email,
             subject: `${c.surveyTitle || c.name} — ¿Cómo lo estamos haciendo?`,
             html,
