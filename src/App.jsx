@@ -5,6 +5,7 @@ import LoginPage from './pages/Login'
 import RegisterPage from './pages/Register'
 import CheckoutPage from './pages/Checkout'
 import BlockedPage from './pages/Blocked'
+import SurveyPage from './pages/Survey'
 
 const C = { primary: '#73017B', magenta: '#E40993', surface: '#F7F2FA' }
 const DISP = "'Quicksand','Trebuchet MS',sans-serif"
@@ -30,6 +31,10 @@ function LoadingScreen() {
 }
 
 export default function App() {
+  // Ruta pública de encuesta — sin auth
+  const surveyMatch = window.location.pathname.match(/^\/encuesta\/(.+)/)
+  if (surveyMatch) return <SurveyPage clientId={surveyMatch[1]} />
+
   const [user, setUser] = useState(null)
   const [subscriptionStatus, setSubscriptionStatus] = useState(null) // null | 'active' | 'trialing' | 'past_due' | 'canceled' | 'unpaid' | 'none'
   const [loading, setLoading] = useState(true)

@@ -387,6 +387,15 @@ function YearTabs({years,year,setYear}){ if(years.length<2) return null; return 
 ); }
 
 /* ============================================================ ADMIN: CLIENTES ============================================================ */
+function CopyLinkBtn({clientId}){
+  const [copied,setCopied]=useState(false);
+  const copy=()=>{ navigator.clipboard.writeText(`${window.location.origin}/encuesta/${clientId}`); setCopied(true); setTimeout(()=>setCopied(false),2000); };
+  return <button onClick={copy} title="Copiar link de encuesta" style={{display:'flex',alignItems:'center',gap:5,padding:'6px 10px',borderRadius:8,border:`1px solid ${copied?C.exc:C.line}`,background:copied?C.excBg:'#fff',color:copied?C.exc:C.tx2,fontSize:12,fontWeight:600,cursor:'pointer',transition:'all .2s',whiteSpace:'nowrap'}}>
+    {copied?<Check size={13}/>:<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>}
+    {copied?'¡Copiado!':'Link encuesta'}
+  </button>;
+}
+
 function AdminClientes({db,update,goClient}){
   const [edit,setEdit]=useState(null); const [del,setDel]=useState(null);
   const blank={id:'',name:'',code:'',web:'',sector:'',contexto:'',productos:[''],propuesta:'',segmentos:[...SEGMENTOS],notas:''};
@@ -417,6 +426,7 @@ function AdminClientes({db,update,goClient}){
           </div>
           <div style={{display:'flex',gap:8,marginTop:14}}>
             <Btn size="sm" variant="soft" icon={Eye} onClick={()=>goClient(c.id)} style={{flex:1}}>Ver portal</Btn>
+            <CopyLinkBtn clientId={c.id}/>
           </div>
         </Card>
       ); })}
@@ -520,9 +530,10 @@ function AdminCarga({db,update}){
       </div>
     </Card>
 
-    <div style={{display:'flex',gap:8,margin:'18px 0 14px'}}>
+    <div style={{display:'flex',gap:8,margin:'18px 0 14px',flexWrap:'wrap'}}>
       <Btn variant={mode==='excel'?'primary':'ghost'} size="sm" icon={FileSpreadsheet} onClick={()=>setMode('excel')}>Importar Excel</Btn>
       <Btn variant={mode==='manual'?'primary':'ghost'} size="sm" icon={Pencil} onClick={()=>setMode('manual')}>Carga manual</Btn>
+      <Btn variant={mode==='survey'?'primary':'ghost'} size="sm" icon={MessageSquare} onClick={()=>setMode('survey')}>Desde link de encuesta</Btn>
     </div>
 
     {toast&&<div className="fu" style={{display:'flex',alignItems:'center',gap:9,padding:'11px 14px',borderRadius:12,marginBottom:14,fontSize:13,fontWeight:600,background:toast.bad?C.criticoBg:C.excBg,color:toast.bad?C.critico:C.exc}}>{toast.bad?<AlertTriangle size={16}/>:<Check size={16}/>}{toast.msg}</div>}
@@ -537,8 +548,62 @@ function AdminCarga({db,update}){
           <label><Btn icon={Upload} onClick={()=>document.getElementById('npsfile').click()}>Subir archivo</Btn><input id="npsfile" type="file" accept=".xlsx,.xls,.csv" onChange={onFile} style={{display:'none'}}/></label>
         </div>
       </Card>
-    ) : <ManualEntry onAdd={(r)=>{ update(d=>{ const cc=d.data[cid]; if(!cc.months)cc.months=[]; let mo=cc.months.find(m=>m.month===mKey); if(mo){mo.responses.push(r); mo.sent=(mo.sent||0)+1;} else {cc.months.push({month:mKey,sent:1,responses:[r]});} }); flash({bad:false,msg:'Respuesta agregada.'}); }}/>}
+    ) : mode==='manual' ? <ManualEntry onAdd={(r)=>{ update(d=>{ const cc=d.data[cid]; if(!cc.months)cc.months=[]; let mo=cc.months.find(m=>m.month===mKey); if(mo){mo.responses.push(r); mo.sent=(mo.sent||0)+1;} else {cc.months.push({month:mKey,sent:1,responses:[r]});} }); flash({bad:false,msg:'Respuesta agregada.'}); }}/>
+    : <SurveyImport clientId={cid} clientName={c?.name} mKey={mKey} month={month} year={year} update={update} flash={flash}/>}
   </div>;
+}
+
+function SurveyImport({clientId,clientName,mKey,month,year,update,flash}){
+  const [loading,setLoading]=useState(false);
+  const [preview,setPreview]=useState(null);
+  const link=`${window.location.origin}/encuesta/${clientId}`;
+  const [copied,setCopied]=useState(false);
+  const copyLink=()=>{ navigator.clipboard.writeText(link); setCopied(true); setTimeout(()=>setCopied(false),2000); };
+
+  async function fetchResponses(){
+    setLoading(true); setPreview(null);
+    try{
+      const r=await fetch(`/api/survey-import?clientId=${clientId}&month=${mKey}`);
+      const d=await r.json();
+      if(d.error){ flash({bad:true,msg:d.error}); setLoading(false); return; }
+      setPreview(d);
+    }catch(e){ flash({bad:true,msg:'Error al conectar con el servidor.'}); }
+    setLoading(false);
+  }
+
+  function importAll(){
+    if(!preview?.responses?.length) return;
+    update(d=>{ const cc=d.data[clientId]; if(!cc.months)cc.months=[]; let mo=cc.months.find(m=>m.month===mKey);
+      if(mo){ mo.responses.push(...preview.responses); mo.sent=(mo.sent||0)+preview.responses.length; }
+      else { cc.months.push({month:mKey,sent:preview.responses.length,responses:preview.responses}); }
+    });
+    flash({bad:false,msg:`${preview.responses.length} respuestas importadas al dashboard.`});
+    setPreview(null);
+  }
+
+  const MESLONG2=['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  return <Card style={{padding:24}}>
+    <div style={{display:'grid',placeItems:'center',width:56,height:56,borderRadius:16,background:C.lila3,color:C.primary,margin:'0 auto 14px'}}><MessageSquare size={26}/></div>
+    <div style={{fontWeight:700,fontSize:16,textAlign:'center',marginBottom:6}} className="disp">Link de encuesta para {clientName}</div>
+    <div style={{fontSize:13,color:C.tx2,textAlign:'center',marginBottom:18,lineHeight:1.5}}>Compartí este link con los contactos del cliente. Responden sin necesitar cuenta.</div>
+    <div style={{display:'flex',gap:8,alignItems:'center',background:C.surface,borderRadius:12,padding:'10px 14px',marginBottom:20,flexWrap:'wrap'}}>
+      <span style={{fontSize:12.5,color:C.tx2,flex:1,wordBreak:'break-all'}}>{link}</span>
+      <button onClick={copyLink} style={{display:'flex',alignItems:'center',gap:5,padding:'6px 12px',borderRadius:8,border:`1px solid ${copied?C.exc:C.line}`,background:copied?C.excBg:'#fff',color:copied?C.exc:C.primary,fontSize:12,fontWeight:700,cursor:'pointer',transition:'all .2s',flexShrink:0}}>
+        {copied?<Check size={13}/>:<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>}
+        {copied?'¡Copiado!':'Copiar link'}
+      </button>
+    </div>
+    <div style={{textAlign:'center'}}>
+      <Btn icon={loading?RotateCcw:Download} onClick={fetchResponses} disabled={loading}>{loading?'Buscando...':'Ver respuestas de '+MESLONG2[month]+' '+year}</Btn>
+    </div>
+    {preview&&<div style={{marginTop:20}}>
+      <div style={{background:preview.total>0?C.excBg:C.lila4,borderRadius:12,padding:'12px 16px',textAlign:'center',marginBottom:16}}>
+        <span style={{fontWeight:700,fontSize:15,color:preview.total>0?C.exc:C.tx2}}>{preview.total} respuestas nuevas</span>
+        <span style={{fontSize:13,color:C.tx2}}> en el link de encuesta para {MESLONG2[month]} {year}</span>
+      </div>
+      {preview.total>0&&<div style={{display:'flex',justifyContent:'center'}}><Btn icon={Check} onClick={importAll}>Importar al dashboard</Btn></div>}
+    </div>}
+  </Card>;
 }
 
 function ManualEntry({onAdd}){
