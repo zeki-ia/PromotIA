@@ -154,7 +154,7 @@ async function callClaude(prompt, maxTokens=1200){
   // que agrega la API key del lado del servidor. La key NUNCA viaja al browser.
   const res = await fetch('/api/claude',{
     method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ model:'claude-sonnet-4-20250514', max_tokens:maxTokens, messages:[{role:'user',content:prompt}] })
+    body: JSON.stringify({ model:'claude-sonnet-4-6', max_tokens:maxTokens, messages:[{role:'user',content:prompt}] })
   });
   if(!res.ok) throw new Error('API '+res.status);
   const data = await res.json();
