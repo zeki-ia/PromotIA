@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Cell, ReferenceLine } from 'recharts';
-import { TrendingUp, TrendingDown, AlertTriangle, Lightbulb, Target, Upload, ChevronRight, ChevronDown, Users, Activity, Gauge, Download, Sparkles, Building2, Plus, Trash2, Pencil, Check, X, Eye, ArrowLeft, CalendarDays, RotateCcw, LogOut, LayoutDashboard, FileSpreadsheet, MessageSquare, ClipboardList, BarChart3, ShieldCheck, Wand2, Heart, Star, Inbox, Briefcase, ThumbsUp, ThumbsDown, Minus, Package, Quote, Layers, QrCode, Printer, Settings, Bot, FileText, Send, BarChart2, Clock, Zap } from 'lucide-react';
+import { TrendingUp, TrendingDown, AlertTriangle, Lightbulb, Target, Upload, ChevronRight, ChevronDown, Users, Activity, Gauge, Download, Sparkles, Building2, Plus, Trash2, Pencil, Check, X, Eye, ArrowLeft, CalendarDays, RotateCcw, LogOut, LayoutDashboard, FileSpreadsheet, MessageSquare, ClipboardList, BarChart3, ShieldCheck, Wand2, Heart, Star, Inbox, Briefcase, ThumbsUp, ThumbsDown, Minus, Package, Quote, Layers, QrCode, Printer, Settings, Bot, FileText, Send, BarChart2, Clock, Zap, Bell, Flag, GitCompareArrows, Home, UserCheck, XCircle, PhoneCall } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { supabase } from './lib/supabase';
 
@@ -434,7 +434,7 @@ function QRModal({url,name,onClose}){
 }
 
 /* ---- Realtime hook: escucha survey_responses y las agrega automáticamente ---- */
-function useRealtimeSurvey(update){
+function useRealtimeSurvey(update, onNewDetractor){
   useEffect(()=>{
     const channel=supabase.channel('survey_rt')
       .on('postgres_changes',{event:'INSERT',schema:'public',table:'survey_responses'},({new:r})=>{
@@ -445,6 +445,7 @@ function useRealtimeSurvey(update){
         const dims={}; if(r.segmento)dims.Segmento=r.segmento; if(r.sector)dims.Sector=r.sector; if(r.region)dims['Región']=r.region;
         if(Object.keys(dims).length)row.d=dims;
         update(db=>{ if(!db.data[r.client_id])return; const cc=db.data[r.client_id]; if(!cc.months)cc.months=[]; let mo=cc.months.find(m=>m.month===mKey); if(mo){mo.responses.push(row); mo.sent=(mo.sent||0)+1;} else {cc.months.push({month:mKey,sent:1,responses:[row]});} });
+        if(r.score<=6 && onNewDetractor) onNewDetractor(r);
       })
       .subscribe();
     return ()=>{ supabase.removeChannel(channel); };
@@ -453,7 +454,7 @@ function useRealtimeSurvey(update){
 
 function AdminClientes({db,update,goClient}){
   const [edit,setEdit]=useState(null); const [del,setDel]=useState(null); const [qr,setQr]=useState(null);
-  const blank={id:'',name:'',code:'',web:'',sector:'',contexto:'',productos:[''],propuesta:'',segmentos:[...SEGMENTOS],notas:'',surveyTitle:'',surveyColor:'#73017B',surveyLogo:'',surveyQuestion:'¿Qué tan probable es que nos recomiendes?',surveyFrequency:'ninguna',contactEmails:''};
+  const blank={id:'',name:'',code:'',web:'',sector:'',contexto:'',productos:[''],propuesta:'',segmentos:[...SEGMENTOS],notas:'',surveyTitle:'',surveyColor:'#73017B',surveyLogo:'',surveyQuestion:'¿Qué tan probable es que nos recomiendes?',surveyFrequency:'ninguna',contactEmails:'',npsTarget:'',npsTargetLabel:''};
   const save=()=>{ const c={...edit, productos:(edit.productos||[]).map(s=>s.trim()).filter(Boolean)}; if(!c.name.trim())return;
     let savedId=c.id;
     update(d=>{ if(c.id){ const i=d.clients.findIndex(x=>x.id===c.id); d.clients[i]={...c}; savedId=c.id; }
@@ -530,6 +531,13 @@ function AdminClientes({db,update,goClient}){
             <Field label="Emails de contacto" hint="Separados por coma"><Input value={edit.contactEmails||''} onChange={e=>setEdit({...edit,contactEmails:e.target.value})} placeholder="a@empresa.com, b@empresa.com"/></Field>
           </div>
           {(edit.surveyFrequency&&edit.surveyFrequency!=='ninguna')&&<div style={{fontSize:12,color:C.tx3,background:C.surface,borderRadius:9,padding:'8px 12px'}}>Próximo envío: {nextSendDate(edit.surveyFrequency)} · Requiere configurar RESEND_API_KEY en Vercel.</div>}
+        </div>
+        <div style={{borderTop:`1px solid ${C.line}`,paddingTop:16,marginTop:4}}>
+          <div style={{display:'flex',alignItems:'center',gap:7,fontFamily:DISP,fontWeight:700,fontSize:13,color:C.primary,marginBottom:12}}><Flag size={14}/>Target de NPS</div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+            <Field label="NPS objetivo" hint="Ej: 50"><Input type="number" min="-100" max="100" value={edit.npsTarget||''} onChange={e=>setEdit({...edit,npsTarget:e.target.value})} placeholder="Ej: 50"/></Field>
+            <Field label="Etiqueta del período" hint="Ej: Q4 2025, Dic 2025"><Input value={edit.npsTargetLabel||''} onChange={e=>setEdit({...edit,npsTargetLabel:e.target.value})} placeholder="Ej: Q4 2025"/></Field>
+          </div>
         </div>
         <div style={{display:'flex',justifyContent:'flex-end',gap:8,marginTop:6}}><Btn variant="ghost" onClick={()=>setEdit(null)}>Cancelar</Btn><Btn icon={Check} onClick={save}>Guardar</Btn></div>
       </div>}
@@ -793,7 +801,26 @@ Devolvé SOLO un JSON array (sin markdown) con 4 a 5 objetos ordenados por prior
 }
 
 /* ============================================================ CLIENT: RESUMEN (AÑO ACTUAL) ============================================================ */
+function NpsTargetBar({current, target, label}){
+  if(target==null||current==null)return null;
+  const pct=Math.min(100,Math.max(0,Math.round((current+100)/(target+100)*100)));
+  const met=current>=target;
+  return <div style={{background:met?C.excBg:C.mejorarBg,borderRadius:12,padding:'12px 16px',marginBottom:16,display:'flex',gap:16,alignItems:'center'}}>
+    <Flag size={16} style={{color:met?C.exc:C.mejorar,flexShrink:0}}/>
+    <div style={{flex:1}}>
+      <div style={{display:'flex',justifyContent:'space-between',marginBottom:5}}>
+        <span style={{fontSize:12.5,fontWeight:700,color:met?C.exc:C.mejorar}}>Target{label?` · ${label}`:''}: NPS {target>0?'+':''}{target}</span>
+        <span style={{fontSize:12,color:met?C.exc:C.mejorar,fontWeight:700}}>{met?'✓ Alcanzado':`Actual: ${current>0?'+':''}${current}`}</span>
+      </div>
+      <div style={{height:6,borderRadius:3,background:'rgba(0,0,0,.1)',overflow:'hidden'}}>
+        <div style={{height:'100%',width:pct+'%',background:met?C.exc:C.mejorar,borderRadius:3,transition:'width .5s'}}/>
+      </div>
+    </div>
+  </div>;
+}
+
 function ClientResumen({db,clientId}){
+  const c=db.clients.find(x=>x.id===clientId);
   const cd=db.data[clientId]; const years=clientYears(cd); const [year,setYear]=useState(years.slice(-1)[0]);
   const [seg,setSeg]=useState(''); const [sec,setSec]=useState('');
   const yResp=yearResp(cd,year); const segs0=demoOptions(yResp,'Segmento'); const secs0=demoOptions(yResp,'Sector');
@@ -810,6 +837,7 @@ function ClientResumen({db,clientId}){
 
   if(!yResp.length) return <Empty icon={Inbox} title="Sin NPS para este año" sub="Cuando se carguen respuestas vas a ver acá el tablero de NPS del año en curso."/>;
   return <div>
+    {c?.npsTarget&&m&&<NpsTargetBar current={m.nps} target={Number(c.npsTarget)} label={c.npsTargetLabel}/>}
     <Section title={`NPS ${year}`} hint="Tablero del año en curso · metodología NPS estándar" icon={LayoutDashboard}
       right={<div style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap'}}>
         <YearTabs years={years} year={year} setYear={setYear}/>
@@ -1087,7 +1115,7 @@ Devolvé SOLO un JSON array (sin markdown), 4 a 5 objetos ordenados por impacto:
 }
 
 function PlanEditor({cards,onChange}){
-  const upd=(id,patch)=>onChange(cards.map(c=>c.id===id?{...c,...patch}:c));
+  const upd=(id,patch)=>onChange(cards.map(c=>{ if(c.id!==id)return c; const next={...c,...patch}; if(patch.estado==='Hecho'&&!c.completedAt)next.completedAt=new Date().toLocaleDateString('es-AR'); if(patch.estado&&patch.estado!=='Hecho')next.completedAt=undefined; return next; }));
   const del=(id)=>onChange(cards.filter(c=>c.id!==id));
   const addAction=(id)=>{ const c=cards.find(x=>x.id===id); upd(id,{acciones:[...(c.acciones||[]),'Nueva acción']}); };
   const setAction=(id,i,v)=>{ const c=cards.find(x=>x.id===id); const a=[...c.acciones]; a[i]=v; upd(id,{acciones:a}); };
@@ -1095,15 +1123,29 @@ function PlanEditor({cards,onChange}){
   const addCard=()=>onChange([...cards,{id:uid('ac'),foco:'Nueva iniciativa',objetivo:'',acciones:['Acción 1'],responsable:'',indicador:'',plazo:'Q1',estado:'Pendiente'}]);
   const estados=['Pendiente','En curso','Hecho'];
   const eCol=s=>s==='Hecho'?C.exc:s==='En curso'?C.mejorar:C.tx3;
+  const eBg=s=>s==='Hecho'?C.excBg:s==='En curso'?C.mejorarBg:C.surface;
+  const done=cards.filter(c=>c.estado==='Hecho').length;
+  const inProgress=cards.filter(c=>c.estado==='En curso').length;
   return <div>
+    {cards.length>0&&<div style={{display:'flex',gap:12,marginBottom:16,flexWrap:'wrap'}}>
+      {[{label:'Total',v:cards.length,c:C.tx2},{label:'En curso',v:inProgress,c:C.mejorar},{label:'Completadas',v:done,c:C.exc}].map(({label,v,c})=><div key={label} style={{background:'#fff',border:`1px solid ${C.line}`,borderRadius:10,padding:'10px 16px',textAlign:'center',minWidth:90}}>
+        <div style={{fontFamily:DISP,fontWeight:700,fontSize:22,color:c}}>{v}</div>
+        <div style={{fontSize:11,color:C.tx3}}>{label}</div>
+      </div>)}
+      {done>0&&<div style={{flex:1,minWidth:160,background:C.excBg,borderRadius:10,padding:'10px 16px',display:'flex',alignItems:'center',gap:8}}>
+        <div style={{flex:1}}><div style={{height:6,borderRadius:3,background:C.line,overflow:'hidden'}}><div style={{height:'100%',width:Math.round(done/cards.length*100)+'%',background:C.exc,borderRadius:3}}/></div></div>
+        <span style={{fontSize:12,fontWeight:700,color:C.exc}}>{Math.round(done/cards.length*100)}%</span>
+      </div>}
+    </div>}
     <div style={{display:'grid',gap:14}}>
-      {cards.map((c,i)=> <Card key={c.id} className="fu" style={{padding:18,animationDelay:(i*50)+'ms'}}>
+      {cards.map((c,i)=> <Card key={c.id} className="fu" style={{padding:18,animationDelay:(i*50)+'ms',borderLeft:`3px solid ${eCol(c.estado)}`}}>
         <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:12}}>
-          <span style={{display:'grid',placeItems:'center',width:30,height:30,borderRadius:9,background:C.grad,color:'#fff',fontWeight:700,fontFamily:DISP,fontSize:14}}>{i+1}</span>
-          <input value={c.foco} onChange={e=>upd(c.id,{foco:e.target.value})} style={{flex:1,border:'none',fontFamily:DISP,fontWeight:700,fontSize:16,color:C.tx,background:'transparent'}}/>
-          <Select value={c.estado} onChange={e=>upd(c.id,{estado:e.target.value})} style={{width:'auto',padding:'6px 28px 6px 11px',fontSize:12,fontWeight:700,color:eCol(c.estado)}}>{estados.map(s=><option key={s}>{s}</option>)}</Select>
+          <span style={{display:'grid',placeItems:'center',width:30,height:30,borderRadius:9,background:c.estado==='Hecho'?C.exc:C.grad,color:'#fff',fontWeight:700,fontFamily:DISP,fontSize:14}}>{c.estado==='Hecho'?<Check size={15}/>:i+1}</span>
+          <input value={c.foco} onChange={e=>upd(c.id,{foco:e.target.value})} style={{flex:1,border:'none',fontFamily:DISP,fontWeight:700,fontSize:16,color:c.estado==='Hecho'?C.tx3:C.tx,background:'transparent',textDecoration:c.estado==='Hecho'?'line-through':'none'}}/>
+          <Select value={c.estado} onChange={e=>upd(c.id,{estado:e.target.value})} style={{width:'auto',padding:'6px 28px 6px 11px',fontSize:12,fontWeight:700,color:eCol(c.estado),background:eBg(c.estado)}}>{estados.map(s=><option key={s}>{s}</option>)}</Select>
           <IconBtn icon={Trash2} tone="danger" onClick={()=>del(c.id)}/>
         </div>
+        {c.completedAt&&<div style={{fontSize:11.5,color:C.exc,marginBottom:8,display:'flex',alignItems:'center',gap:5}}><Check size={12}/>Completada el {c.completedAt}</div>}
         <Field label="Objetivo"><Textarea value={c.objetivo} onChange={e=>upd(c.id,{objetivo:e.target.value})} style={{minHeight:54}}/></Field>
         <div style={{fontSize:12,fontWeight:700,color:C.tx2,marginBottom:6}}>Acciones</div>
         {(c.acciones||[]).map((a,j)=><div key={j} style={{display:'flex',gap:8,alignItems:'center',marginBottom:7}}>
@@ -1162,6 +1204,201 @@ function Login({db,onAdmin,onClient}){
         <p style={{fontSize:11,color:C.tx3,marginTop:22,lineHeight:1.5}}>Cada usuario accede con su cuenta y solo ve su portal asignado.</p>
       </div>
     </div>
+  </div>;
+}
+
+/* ============================================================ ADMIN: PANEL EJECUTIVO ============================================================ */
+function AdminPanel({db,newDetCount,goClient}){
+  const rows=db.clients.map(c=>{
+    const s=clientStats(db,c.id); const cr=churnRisk(db,c.id);
+    const sorted=(db.data[c.id]?.months||[]).slice().sort((a,b)=>a.month<b.month?-1:1);
+    const lastTwo=sorted.slice(-2);
+    const delta=lastTwo.length===2?npsOf(lastTwo[1].responses)?.nps-npsOf(lastTwo[0].responses)?.nps:null;
+    return {c,s,cr,delta};
+  });
+  const avgNPS=rows.filter(r=>r.s.nps!=null).length? Math.round(rows.filter(r=>r.s.nps!=null).reduce((a,r)=>a+r.s.nps,0)/rows.filter(r=>r.s.nps!=null).length):null;
+  const atRisk=rows.filter(r=>r.cr).length;
+  const totalResp=rows.reduce((a,r)=>a+r.s.resp,0);
+  return <div>
+    <Section title="Panel ejecutivo" hint="Vista consolidada de toda la cartera de clientes" icon={Home}/>
+    <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:14,marginBottom:20}}>
+      <Kpi title="Clientes activos" value={db.clients.length} icon={Building2}/>
+      <Kpi title="NPS promedio cartera" value={avgNPS!=null?(avgNPS>0?'+':'')+avgNPS:'—'} icon={Gauge} tone={avgNPS!=null?(avgNPS>=30?'brand':'ink'):'ink'}/>
+      <Kpi title="Clientes en riesgo" value={atRisk} icon={AlertTriangle} tone={atRisk>0?'warn':'ink'}/>
+      <Kpi title="Respuestas totales" value={totalResp.toLocaleString('es')} icon={MessageSquare} tone="ink"/>
+    </div>
+    {newDetCount>0&&<div style={{display:'flex',alignItems:'center',gap:10,background:C.criticoBg,border:`1px solid ${C.critico}33`,borderRadius:12,padding:'12px 16px',marginBottom:16}}>
+      <Bell size={16} style={{color:C.critico,flexShrink:0}}/>
+      <span style={{fontSize:13.5,fontWeight:700,color:C.critico}}>{newDetCount} nuevo{newDetCount>1?'s':''} detractor{newDetCount>1?'es':''} en tiempo real</span>
+      <span style={{fontSize:12.5,color:C.tx2,flex:1}}>· Respondieron con 0-6 mientras estabas en sesión</span>
+    </div>}
+    <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(300px,1fr))',gap:14}}>
+      {rows.map(({c,s,cr,delta})=>{
+        const b=npsBand(s.nps);
+        return <Card key={c.id} className="fu" style={{padding:18,border:cr?`1.5px solid ${C.critico}44`:''}}>
+          <div style={{display:'flex',alignItems:'flex-start',gap:10,marginBottom:12}}>
+            <div style={{display:'grid',placeItems:'center',width:40,height:40,borderRadius:11,background:C.grad,color:'#fff',fontWeight:700,fontFamily:DISP,fontSize:17,flexShrink:0}}>{c.name[0]}</div>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontWeight:700,fontSize:15,fontFamily:DISP}}>{c.name}</div>
+              <div style={{fontSize:11.5,color:C.tx3}}>{c.sector||c.code}</div>
+            </div>
+            {s.nps!=null&&<div style={{textAlign:'right',flexShrink:0}}>
+              <div style={{fontFamily:DISP,fontWeight:700,fontSize:22,color:bandCol(b),lineHeight:1}}>{s.nps>0?'+':''}{s.nps}</div>
+              <div style={{fontSize:10,color:C.tx3}}>NPS</div>
+            </div>}
+          </div>
+          <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:12}}>
+            {delta!=null&&<Tag tone={delta>=0?'good':'bad'} style={{display:'inline-flex',alignItems:'center',gap:3}}>{delta>=0?<TrendingUp size={11}/>:<TrendingDown size={11}/>}{delta>=0?'+':''}{delta} vs mes ant.</Tag>}
+            {cr&&<Tag tone="bad"><AlertTriangle size={11} style={{marginRight:3,verticalAlign:'-1px'}}/>Riesgo churn</Tag>}
+            <Tag tone="brand">{s.resp} respuestas</Tag>
+            {c.npsTarget&&s.nps!=null&&<Tag tone={s.nps>=Number(c.npsTarget)?'good':'warn'}><Flag size={10} style={{marginRight:3}}/>Target {Number(c.npsTarget)>0?'+':''}{c.npsTarget}</Tag>}
+          </div>
+          <Btn size="sm" variant="soft" icon={Eye} onClick={()=>goClient(c.id)} style={{width:'100%'}}>Ver portal</Btn>
+        </Card>;
+      })}
+      {!db.clients.length&&<Empty icon={Building2} title="Sin clientes" sub="Agregá clientes desde la sección Clientes."/>}
+    </div>
+  </div>;
+}
+
+/* ============================================================ ADMIN: DETRACTORES ============================================================ */
+function AdminDetractores({db,update}){
+  const [items,setItems]=useState([]); const [loading,setLoading]=useState(false); const [err,setErr]=useState(false);
+  const followups=db.followups||{};
+  const clientName=id=>db.clients.find(c=>c.id===id)?.name||id;
+
+  async function load(){
+    setLoading(true); setErr(false);
+    try{
+      const r=await fetch('/api/detractors'); if(!r.ok)throw new Error();
+      const d=await r.json(); setItems(d.detractors||[]);
+    }catch(e){setErr(true);} finally{setLoading(false);}
+  }
+  useEffect(()=>{load();},[]);
+
+  function setStatus(id,status){ update(db=>{ if(!db.followups)db.followups={}; db.followups[id]={...(db.followups[id]||{}),status,updatedAt:new Date().toLocaleDateString('es-AR')}; }); }
+  function setNotes(id,notes){ update(db=>{ if(!db.followups)db.followups={}; db.followups[id]={...(db.followups[id]||{}),notes}; }); }
+
+  const STATUS_CFG={
+    pendiente:{label:'Pendiente',icon:Bell,col:C.mejorar,bg:C.mejorarBg},
+    contactado:{label:'Contactado',icon:PhoneCall,col:C.primary,bg:C.lila4},
+    resuelto:{label:'Resuelto',icon:UserCheck,col:C.exc,bg:C.excBg},
+    perdido:{label:'Perdido',icon:XCircle,col:C.critico,bg:C.criticoBg},
+  };
+  const byStatus=s=>items.filter(i=>(followups[i.id]?.status||'pendiente')===s);
+  const pending=byStatus('pendiente'); const contacted=byStatus('contactado'); const resolved=byStatus('resuelto'); const lost=byStatus('perdido');
+
+  const DetCard=({item})=>{
+    const fu=followups[item.id]||{status:'pendiente'};
+    const cfg=STATUS_CFG[fu.status||'pendiente'];
+    const [showNotes,setShowNotes]=useState(false);
+    return <Card style={{padding:16,marginBottom:10}}>
+      <div style={{display:'flex',alignItems:'flex-start',gap:10}}>
+        <div style={{display:'grid',placeItems:'center',width:34,height:34,borderRadius:9,background:C.criticoBg,color:C.critico,fontWeight:700,fontFamily:DISP,fontSize:15,flexShrink:0}}>{item.score}</div>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{display:'flex',gap:6,alignItems:'center',marginBottom:4,flexWrap:'wrap'}}>
+            <span style={{fontWeight:700,fontSize:13,color:C.tx}}>{clientName(item.client_id)}</span>
+            {item.name&&<span style={{fontSize:12,color:C.tx3}}>· {item.name}</span>}
+            <span style={{fontSize:11,color:C.tx3,marginLeft:'auto'}}>{new Date(item.created_at).toLocaleDateString('es-AR')}</span>
+          </div>
+          {item.comment&&<div style={{fontSize:13,color:C.tx2,lineHeight:1.5,marginBottom:8,background:C.surface,borderRadius:8,padding:'8px 10px',fontStyle:'italic'}}>"{item.comment}"</div>}
+          <div style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center'}}>
+            {Object.entries(STATUS_CFG).map(([key,sc])=><button key={key} onClick={()=>setStatus(item.id,key)} style={{display:'inline-flex',alignItems:'center',gap:4,padding:'5px 10px',borderRadius:8,border:`1px solid ${fu.status===key?sc.col:C.line}`,background:fu.status===key?sc.bg:'#fff',color:fu.status===key?sc.col:C.tx3,fontSize:12,fontWeight:fu.status===key?700:500,cursor:'pointer'}}><sc.icon size={12}/>{sc.label}</button>)}
+            <button onClick={()=>setShowNotes(!showNotes)} style={{marginLeft:'auto',fontSize:12,color:C.tx3,background:'none',border:`1px solid ${C.line}`,borderRadius:8,padding:'5px 10px',cursor:'pointer'}}>{showNotes?'Cerrar':'+ Nota'}</button>
+          </div>
+          {showNotes&&<textarea value={fu.notes||''} onChange={e=>setNotes(item.id,e.target.value)} placeholder="Registrá qué pasó: llamaste, qué respondió, cómo lo resolviste…" style={{...inputCss,marginTop:8,minHeight:60,fontSize:12.5}}/>}
+          {fu.notes&&!showNotes&&<div style={{fontSize:12,color:C.tx2,marginTop:6,padding:'6px 10px',background:C.surface,borderRadius:8}}>📝 {fu.notes}</div>}
+          {fu.updatedAt&&<div style={{fontSize:11,color:C.tx3,marginTop:4}}>Actualizado: {fu.updatedAt}</div>}
+        </div>
+      </div>
+    </Card>;
+  };
+
+  const total=items.length; const gestPct=total?Math.round((resolved.length+lost.length)/total*100):0;
+  return <div>
+    <Section title="Detractores — cierre de loop" hint="Gestión de clientes que respondieron 0-6 · metodología Close the Loop" icon={Bell}
+      right={<Btn variant="ghost" icon={RotateCcw} size="sm" onClick={load} disabled={loading}>Actualizar</Btn>}/>
+    {total>0&&<div style={{display:'flex',gap:12,marginBottom:16,flexWrap:'wrap'}}>
+      {Object.entries(STATUS_CFG).map(([key,sc])=>{
+        const count=byStatus(key).length;
+        return <div key={key} style={{background:sc.bg,borderRadius:10,padding:'10px 16px',display:'flex',alignItems:'center',gap:8,minWidth:120}}>
+          <sc.icon size={16} style={{color:sc.col}}/><div><div style={{fontFamily:DISP,fontWeight:700,fontSize:20,color:sc.col}}>{count}</div><div style={{fontSize:11,color:sc.col,opacity:.8}}>{sc.label}</div></div>
+        </div>;
+      })}
+      {gestPct>0&&<div style={{flex:1,minWidth:140,background:'#fff',border:`1px solid ${C.line}`,borderRadius:10,padding:'10px 16px',display:'flex',alignItems:'center',gap:10}}>
+        <div style={{flex:1}}><div style={{height:6,borderRadius:3,background:C.line,overflow:'hidden',marginBottom:4}}><div style={{height:'100%',width:gestPct+'%',background:C.exc,borderRadius:3}}/></div><div style={{fontSize:11,color:C.tx3}}>{gestPct}% gestionados</div></div>
+      </div>}
+    </div>}
+    {err&&<div style={{color:C.critico,background:C.criticoBg,borderRadius:10,padding:'10px 14px',marginBottom:12,fontSize:13}}>Error al cargar detractores. Verificá las env vars de Supabase.</div>}
+    {loading&&<div style={{textAlign:'center',padding:40}}><Spinner size={24} color={C.primary}/></div>}
+    {!loading&&!err&&!total&&<Empty icon={ThumbsUp} title="Sin detractores por el momento" sub="Cuando lleguen respuestas con score 0-6 aparecerán acá para gestionar."/>}
+    {!loading&&pending.length>0&&<div style={{marginBottom:20}}>
+      <div style={{display:'flex',alignItems:'center',gap:7,fontFamily:DISP,fontWeight:700,fontSize:13,color:C.mejorar,marginBottom:10}}><Bell size={14}/>Pendientes de contactar ({pending.length})</div>
+      {pending.map(i=><DetCard key={i.id} item={i}/>)}
+    </div>}
+    {!loading&&contacted.length>0&&<div style={{marginBottom:20}}>
+      <div style={{display:'flex',alignItems:'center',gap:7,fontFamily:DISP,fontWeight:700,fontSize:13,color:C.primary,marginBottom:10}}><PhoneCall size={14}/>Contactados ({contacted.length})</div>
+      {contacted.map(i=><DetCard key={i.id} item={i}/>)}
+    </div>}
+    {!loading&&(resolved.length>0||lost.length>0)&&<div>
+      <div style={{display:'flex',alignItems:'center',gap:7,fontFamily:DISP,fontWeight:700,fontSize:13,color:C.tx3,marginBottom:10}}><Check size={14}/>Cerrados ({resolved.length+lost.length})</div>
+      {[...resolved,...lost].map(i=><DetCard key={i.id} item={i}/>)}
+    </div>}
+  </div>;
+}
+
+/* ============================================================ CLIENT: COMPARATIVA DE PERÍODOS ============================================================ */
+function ClientComparativa({db,clientId}){
+  const cd=db.data[clientId];
+  const allMonths=(cd?.months||[]).slice().sort((a,b)=>a.month<b.month?-1:1);
+  const years=[...new Set(allMonths.map(m=>m.month.split('-')[0]))];
+
+  const [pA,setPA]=useState(years.slice(-1)[0]||'');
+  const [pB,setPB]=useState(years.length>=2?years.slice(-2)[0]:'');
+
+  function respOfYear(y){ return allMonths.filter(m=>m.month.startsWith(y)).flatMap(m=>m.responses); }
+
+  const mA=npsOf(respOfYear(pA)); const mB=npsOf(respOfYear(pB));
+
+  function Delta({a,b,suffix='',inv=false}){
+    if(a==null||b==null)return <span style={{color:C.tx3}}>—</span>;
+    const d=a-b; const good=inv?d<=0:d>=0;
+    return <span style={{color:good?C.exc:C.critico,fontWeight:700}}>{d>=0?'+':''}{r1(d)}{suffix}</span>;
+  }
+
+  const cols=[
+    {label:'NPS',getV:m=>m?(m.nps>0?'+':'')+m.nps:'—',getN:m=>m?.nps,suffix:''},
+    {label:'Promotores',getV:m=>m?m.proP+'%':'—',getN:m=>m?.proP,suffix:'%'},
+    {label:'Pasivos',getV:m=>m?m.pasP+'%':'—',getN:m=>m?.pasP,suffix:'%'},
+    {label:'Detractores',getV:m=>m?m.detP+'%':'—',getN:m=>m?.detP,suffix:'%',inv:true},
+    {label:'Respuestas',getV:m=>m?m.n:'—',getN:m=>m?.n,suffix:''},
+    {label:'Score prom.',getV:m=>m?m.avg:'—',getN:m=>m?.avg,suffix:'/10'},
+  ];
+
+  if(!allMonths.length)return <Empty icon={GitCompareArrows} title="Sin datos para comparar" sub="Necesitás al menos un mes de datos."/>;
+  return <div>
+    <Section title="Comparativa de períodos" hint="Compará el desempeño NPS entre dos años o períodos" icon={GitCompareArrows}/>
+    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:20,maxWidth:400}}>
+      <Field label="Período A"><Select value={pA} onChange={e=>setPA(e.target.value)}>{years.map(y=><option key={y}>{y}</option>)}</Select></Field>
+      <Field label="Período B"><Select value={pB} onChange={e=>setPB(e.target.value)}><option value="">Sin comparar</option>{years.map(y=><option key={y}>{y}</option>)}</Select></Field>
+    </div>
+    <Card style={{padding:0,overflow:'hidden'}}>
+      <table style={{width:'100%',borderCollapse:'collapse',fontSize:13.5}}>
+        <thead><tr style={{background:C.surface,color:C.tx2,fontSize:11.5}}>
+          <th style={{padding:'12px 18px',fontWeight:700,textAlign:'left'}}>Métrica</th>
+          <th style={{padding:'12px 18px',fontWeight:700,textAlign:'center',background:C.lila4,color:C.primary}}>{pA||'—'}</th>
+          {pB&&<th style={{padding:'12px 18px',fontWeight:700,textAlign:'center'}}>{pB}</th>}
+          {pB&&<th style={{padding:'12px 18px',fontWeight:700,textAlign:'center'}}>Diferencia</th>}
+        </tr></thead>
+        <tbody>{cols.map(({label,getV,getN,suffix,inv})=><tr key={label} style={{borderTop:`1px solid ${C.line}`}}>
+          <td style={{padding:'13px 18px',fontWeight:600,color:C.tx2}}>{label}</td>
+          <td style={{padding:'13px 18px',textAlign:'center',fontWeight:700,fontFamily:DISP,fontSize:16,color:C.primary,background:C.lila4+'66'}}>{getV(mA)}</td>
+          {pB&&<td style={{padding:'13px 18px',textAlign:'center',fontWeight:600}}>{getV(mB)}</td>}
+          {pB&&<td style={{padding:'13px 18px',textAlign:'center',fontSize:13}}><Delta a={getN(mA)} b={getN(mB)} suffix={suffix} inv={inv}/></td>}
+        </tr>)}
+        </tbody>
+      </table>
+    </Card>
   </div>;
 }
 
@@ -1317,10 +1554,11 @@ Incluí: 1. Síntesis ejecutiva. 2. Puntos fuertes. 3. Alertas y oportunidades. 
 }
 
 /* ============================================================ NAV + SHELL ============================================================ */
-function NavItem({icon:Icon,label,active,onClick}){
+function NavItem({icon:Icon,label,active,onClick,badge}){
   return <button onClick={onClick} style={{display:'flex',alignItems:'center',gap:11,width:'100%',padding:'11px 13px',borderRadius:11,border:'none',cursor:'pointer',marginBottom:3,textAlign:'left',
     background:active?C.lila3:'transparent',color:active?C.primary:C.tx2,fontWeight:active?700:600,fontSize:13.5,transition:'all .12s'}}>
-    <Icon size={18} style={{color:active?C.magenta:C.tx3}}/>{label}
+    <Icon size={18} style={{color:active?C.magenta:C.tx3}}/><span style={{flex:1}}>{label}</span>
+    {badge>0&&<span style={{display:'inline-flex',placeItems:'center',background:C.critico,color:'#fff',borderRadius:20,fontSize:10,fontWeight:700,minWidth:18,height:18,justifyContent:'center',padding:'0 5px'}}>{badge}</span>}
   </button>;
 }
 function Shell({nav,active,setActive,topRight,brandSub,children,accentName}){
@@ -1342,19 +1580,25 @@ function Shell({nav,active,setActive,topRight,brandSub,children,accentName}){
 }
 
 function AdminApp({db,update,onLogout,openClient}){
-  useRealtimeSurvey(update);
-  const [view,setView]=useState('clientes'); const [chgPwd,setChgPwd]=useState(false);
+  const [newDetCount,setNewDetCount]=useState(0);
+  useRealtimeSurvey(update,()=>setNewDetCount(n=>n+1));
+  const [view,setView]=useState('panel'); const [chgPwd,setChgPwd]=useState(false);
+  const handleSetView=(v)=>{ if(v==='detractores')setNewDetCount(0); setView(v); };
   const nav=[
+    {key:'panel',label:'Panel ejecutivo',icon:Home},
     {key:'clientes',label:'Clientes',icon:Building2},
+    {key:'detractores',label:'Detractores',icon:Bell,badge:newDetCount},
     {key:'usuarios',label:'Usuarios y accesos',icon:ShieldCheck},
     {key:'uso',label:'Uso',icon:Activity},
     {key:'benchmark',label:'Benchmark',icon:BarChart2},
     {key:'cross',label:'Cross-sell IA',icon:Sparkles},
   ];
   return <><ChangePasswordModal open={chgPwd} onClose={()=>setChgPwd(false)}/>
-  <Shell nav={nav} active={view} setActive={setView} accentName="ADMINISTRACIÓN" brandSub="PromotIA · Delenio People"
+  <Shell nav={nav} active={view} setActive={handleSetView} accentName="ADMINISTRACIÓN" brandSub="PromotIA · Delenio People"
     topRight={<><Tag tone="brand"><ShieldCheck size={12} style={{marginRight:4,verticalAlign:'-2px'}}/>Admin</Tag><Btn size="sm" variant="ghost" icon={Settings} onClick={()=>setChgPwd(true)}>Contraseña</Btn><Btn size="sm" variant="ghost" icon={LogOut} onClick={onLogout}>Salir</Btn></>}>
+    {view==='panel'&&<AdminPanel db={db} newDetCount={newDetCount} goClient={openClient}/>}
     {view==='clientes'&&<AdminClientes db={db} update={update} goClient={openClient}/>}
+    {view==='detractores'&&<AdminDetractores db={db} update={update}/>}
     {view==='usuarios'&&<AdminUsuarios db={db} update={update}/>}
     {view==='uso'&&<AdminUso db={db}/>}
     {view==='benchmark'&&<AdminBenchmark db={db}/>}
@@ -1366,8 +1610,9 @@ function ClientAppShell({db,update,clientId,onLogout,fromAdmin,backToAdmin}){
   const [view,setView]=useState('resumen'); const [chgPwd,setChgPwd]=useState(false);
   const c=db.clients.find(x=>x.id===clientId);
   const nav=[
-    {key:'historico',label:'Dashboard histórico',icon:BarChart3},
     {key:'resumen',label:'NPS del año',icon:LayoutDashboard},
+    {key:'historico',label:'Dashboard histórico',icon:BarChart3},
+    {key:'comparativa',label:'Comparativa',icon:GitCompareArrows},
     {key:'voces',label:'Voz del cliente',icon:Quote},
     {key:'chat',label:'Chat con IA',icon:Bot},
     {key:'informe',label:'Informe ejecutivo',icon:FileText},
@@ -1381,8 +1626,9 @@ function ClientAppShell({db,update,clientId,onLogout,fromAdmin,backToAdmin}){
       {!fromAdmin&&<Btn size="sm" variant="ghost" icon={Settings} onClick={()=>setChgPwd(true)}>Contraseña</Btn>}
       {fromAdmin? <Btn size="sm" variant="ghost" icon={ArrowLeft} onClick={backToAdmin}>Volver a admin</Btn> : <Btn size="sm" variant="ghost" icon={LogOut} onClick={onLogout}>Salir</Btn>}
     </>}>
-    {view==='historico'&&<ClientHistorico db={db} clientId={clientId}/>}
     {view==='resumen'&&<ClientResumen db={db} clientId={clientId}/>}
+    {view==='historico'&&<ClientHistorico db={db} clientId={clientId}/>}
+    {view==='comparativa'&&<ClientComparativa db={db} clientId={clientId}/>}
     {view==='voces'&&<ClientVoces db={db} clientId={clientId} update={update}/>}
     {view==='chat'&&<ClientChat db={db} clientId={clientId}/>}
     {view==='informe'&&<ClientInforme db={db} clientId={clientId}/>}
