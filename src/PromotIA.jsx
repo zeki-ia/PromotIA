@@ -278,6 +278,15 @@ function IconBtn({icon:Icon,onClick,tone,title}){ const col=tone==='danger'?C.cr
 function Field({label,children,hint}){ return <label style={{display:'block',marginBottom:14}}><div style={{fontSize:12,fontWeight:700,color:C.tx2,marginBottom:6}}>{label}</div>{children}{hint&&<div style={{fontSize:11,color:C.tx3,marginTop:4}}>{hint}</div>}</label>; }
 const inputCss = {width:'100%',background:'#fff',border:`1px solid ${C.line}`,borderRadius:11,padding:'10px 13px',fontSize:13.5,color:C.tx};
 function Input(p){ return <input {...p} style={{...inputCss,...(p.style||{})}}/>; }
+function PasswordInput({value,onChange,placeholder}){
+  const [show,setShow]=useState(false);
+  return <div style={{position:'relative'}}>
+    <Input type={show?'text':'password'} value={value} onChange={onChange} placeholder={placeholder||'••••••••'} style={{paddingRight:40}}/>
+    <button type="button" onClick={()=>setShow(v=>!v)} style={{position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',cursor:'pointer',color:C.tx3,padding:0,display:'flex',alignItems:'center'}}>
+      {show?<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>:<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>}
+    </button>
+  </div>;
+}
 function Textarea(p){ return <textarea {...p} style={{...inputCss,minHeight:90,resize:'vertical',lineHeight:1.5,...(p.style||{})}}/>; }
 function Select({value,onChange,children,style}){ return <select value={value} onChange={onChange} style={{...inputCss,appearance:'none',cursor:'pointer',backgroundImage:`url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='%23A99BB0' stroke-width='2'><path d='M4 6l4 4 4-4'/></svg>")`,backgroundRepeat:'no-repeat',backgroundPosition:'right 12px center',paddingRight:34,...style}}>{children}</select>; }
 function Modal({open,onClose,title,children,width=560,icon:Icon}){
@@ -677,7 +686,7 @@ function AdminUsuarios({db,update}){
       {edit&&<div>
         <Field label="Nombre"><Input value={edit.name} onChange={e=>setEdit({...edit,name:e.target.value})}/></Field>
         <Field label="Email"><Input value={edit.email} onChange={e=>setEdit({...edit,email:e.target.value})} placeholder="persona@empresa.com" disabled={!!edit.id}/></Field>
-        {!edit.id&&<Field label="Contraseña" hint="Mínimo 6 caracteres · La compartís con el usuario"><Input type="password" value={edit.password||''} onChange={e=>setEdit({...edit,password:e.target.value})} placeholder="Ej: Empresa2025!"/></Field>}
+        {!edit.id&&<Field label="Contraseña" hint="Mínimo 6 caracteres · La compartís con el usuario"><PasswordInput value={edit.password||''} onChange={e=>setEdit({...edit,password:e.target.value})} placeholder="Ej: Empresa2025!"/></Field>}
         <Field label="Rol"><Select value={edit.role} onChange={e=>setEdit({...edit,role:e.target.value})}><option>Cliente</option><option>Admin</option></Select></Field>
         {edit.role==='Cliente'&&<Field label="Cliente asignado"><Select value={edit.clientCode} onChange={e=>setEdit({...edit,clientCode:e.target.value})}>{db.clients.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</Select></Field>}
         {saveErr&&<div style={{background:'#FCE7E5',color:'#E5564B',borderRadius:9,padding:'9px 12px',fontSize:13,marginBottom:8}}>{saveErr}</div>}
@@ -1428,8 +1437,8 @@ function ChangePasswordModal({open,onClose}){
   }
   if(!open)return null;
   return <Modal open={open} onClose={()=>{onClose();reset();}} title="Cambiar contraseña" icon={ShieldCheck} width={420}>
-    <Field label="Nueva contraseña" hint="Mínimo 6 caracteres"><Input type="password" value={next} onChange={e=>setNext(e.target.value)} placeholder="Nueva contraseña"/></Field>
-    <Field label="Confirmar contraseña"><Input type="password" value={confirm} onChange={e=>setConfirm(e.target.value)} placeholder="Repetí la contraseña"/></Field>
+    <Field label="Nueva contraseña" hint="Mínimo 6 caracteres"><PasswordInput value={next} onChange={e=>setNext(e.target.value)} placeholder="Nueva contraseña"/></Field>
+    <Field label="Confirmar contraseña"><PasswordInput value={confirm} onChange={e=>setConfirm(e.target.value)} placeholder="Repetí la contraseña"/></Field>
     {msg&&<div style={{background:msg.bad?'#FCE7E5':'#E0F3EA',color:msg.bad?'#E5564B':'#1E9E6A',borderRadius:9,padding:'9px 12px',fontSize:13,marginBottom:8}}>{msg.text}</div>}
     <div style={{display:'flex',justifyContent:'flex-end',gap:8,marginTop:6}}>
       <Btn variant="ghost" onClick={()=>{onClose();reset();}}>Cancelar</Btn>

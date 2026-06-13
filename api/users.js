@@ -24,18 +24,18 @@ export default async function handler(req, res) {
     const authData = await authRes.json()
     const authUsers = authData.users || []
 
-    // Combinar
-    const merged = (dbUsers || []).map(u => {
-      const auth = authUsers.find(a => a.id === u.id)
+    // Partir desde auth.users para incluir TODOS (incluso los sin fila en tabla users)
+    const merged = authUsers.map(auth => {
+      const u = (dbUsers || []).find(r => r.id === auth.id)
       return {
-        id: u.id,
-        email: u.email || auth?.email || '',
-        name: auth?.user_metadata?.name || auth?.email?.split('@')[0] || u.email?.split('@')[0] || '',
-        role: u.role === 'admin' ? 'Admin' : 'Cliente',
-        clientCode: u.client_code || '',
-        createdAt: auth?.created_at || '',
-        lastSignIn: auth?.last_sign_in_at || '',
-        confirmed: !!auth?.email_confirmed_at,
+        id: auth.id,
+        email: auth.email || '',
+        name: auth.user_metadata?.name || auth.email?.split('@')[0] || '',
+        role: u?.role === 'admin' ? 'Admin' : u?.role === 'viewer' ? 'Cliente' : 'Admin',
+        clientCode: u?.client_code || '',
+        createdAt: auth.created_at || '',
+        lastSignIn: auth.last_sign_in_at || '',
+        confirmed: !!auth.email_confirmed_at,
       }
     })
 
