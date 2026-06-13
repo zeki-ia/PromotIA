@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Cell, ReferenceLine } from 'recharts';
-import { TrendingUp, TrendingDown, AlertTriangle, Lightbulb, Target, Upload, ChevronRight, ChevronDown, Users, Activity, Gauge, Download, Sparkles, Building2, Plus, Trash2, Pencil, Check, X, Eye, ArrowLeft, CalendarDays, RotateCcw, LogOut, LayoutDashboard, FileSpreadsheet, MessageSquare, ClipboardList, BarChart3, ShieldCheck, Wand2, Heart, Star, Inbox, Briefcase, ThumbsUp, ThumbsDown, Minus, Package, Quote, Layers, QrCode, Printer, Settings, Bot, FileText, Send, BarChart2, Clock, Zap, Bell, Flag, GitCompareArrows, Home, UserCheck, XCircle, PhoneCall } from 'lucide-react';
+import { TrendingUp, TrendingDown, AlertTriangle, Lightbulb, Target, Upload, ChevronRight, ChevronDown, Users, Activity, Gauge, Download, Sparkles, Building2, Plus, Trash2, Pencil, Check, X, Eye, ArrowLeft, CalendarDays, RotateCcw, LogOut, LayoutDashboard, FileSpreadsheet, MessageSquare, ClipboardList, BarChart3, ShieldCheck, Wand2, Heart, Star, Inbox, Briefcase, ThumbsUp, ThumbsDown, Minus, Package, Quote, Layers, QrCode, Printer, Settings, Bot, FileText, Send, BarChart2, Clock, Zap, Bell, Flag, GitCompareArrows, Home, UserCheck, XCircle, PhoneCall, RefreshCw } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { supabase } from './lib/supabase';
 
@@ -625,53 +625,61 @@ function AdminLinks({db,update}){
 /* ============================================================ ADMIN: USUARIOS ============================================================ */
 function AdminUsuarios({db,update}){
   const [edit,setEdit]=useState(null); const [saving,setSaving]=useState(false); const [saveErr,setSaveErr]=useState('');
-  const blank={id:'',name:'',email:'',password:'',role:'Cliente',clientId:db.clients[0]?.id||'',status:'Activo'};
-  const cname=id=>db.clients.find(c=>c.id===id)?.name||'—';
-  const clientCode=id=>db.clients.find(c=>c.id===id)?.id||'';
+  const [sbUsers,setSbUsers]=useState(null); const [loadErr,setLoadErr]=useState('');
+  const blank={id:'',name:'',email:'',password:'',role:'Cliente',clientCode:db.clients[0]?.id||''};
+  const cname=code=>db.clients.find(c=>c.id===code)?.name||code||'—';
+
+  const loadUsers=async()=>{
+    setLoadErr('');
+    try{
+      const r=await fetch('/api/users'); const d=await r.json();
+      if(!r.ok||d.error){setLoadErr(d.error||'Error al cargar usuarios');return;}
+      setSbUsers(d.users||[]);
+    }catch(e){setLoadErr('Error de red: '+e.message);}
+  };
+  useEffect(()=>{loadUsers();},[]);
+
   const save=async()=>{
     const u=edit; if(!u.name.trim()||!u.email.trim())return;
     setSaving(true); setSaveErr('');
     if(!u.id){
-      // Usuario nuevo → crear en Supabase Auth
       if(!u.password||u.password.length<6){setSaveErr('La contraseña debe tener al menos 6 caracteres.');setSaving(false);return;}
       try{
-        const r=await fetch('/api/create-user',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:u.name,email:u.email,password:u.password,role:u.role,clientCode:u.role==='Cliente'?clientCode(u.clientId):null})});
+        const r=await fetch('/api/create-user',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:u.name,email:u.email,password:u.password,role:u.role,clientCode:u.role==='Cliente'?u.clientCode:null})});
         const d=await r.json();
         if(!r.ok||d.error){setSaveErr(d.error||'Error al crear usuario');setSaving(false);return;}
-        update(db=>{ db.users.push({...u,id:d.userId,password:undefined}); });
+        await loadUsers();
       }catch(e){setSaveErr('Error: '+e.message);setSaving(false);return;}
-    } else {
-      update(db=>{ const i=db.users.findIndex(x=>x.id===u.id); db.users[i]={...u,password:undefined}; });
     }
     setSaving(false); setEdit(null);
   };
+
+  const users=sbUsers||[];
   return <div>
-    <Section title="Usuarios y accesos" hint={`${db.users.length} usuarios · quién entra y a qué portal`} icon={ShieldCheck}
-      right={<Btn icon={Plus} onClick={()=>setEdit({...blank})}>Invitar usuario</Btn>}/>
+    <Section title="Usuarios y accesos" hint={sbUsers===null?'Cargando…':`${users.length} usuarios · quién entra y a qué portal`} icon={ShieldCheck}
+      right={<div style={{display:'flex',gap:8}}><IconBtn icon={RefreshCw} onClick={loadUsers} title="Recargar"/><Btn icon={Plus} onClick={()=>setEdit({...blank})}>Invitar usuario</Btn></div>}/>
+    {loadErr&&<div style={{background:'#FCE7E5',color:'#E5564B',borderRadius:9,padding:'9px 12px',fontSize:13,marginBottom:8}}>{loadErr}</div>}
     <Card style={{padding:0,overflow:'hidden'}}>
-      <table style={{width:'100%',borderCollapse:'collapse',fontSize:13.5}}>
-        <thead><tr style={{background:C.surface,color:C.tx2,fontSize:11.5,textAlign:'left'}}>{['Usuario','Rol','Cliente asignado','Estado',''].map((h,i)=><th key={i} style={{padding:'12px 16px',fontWeight:700}}>{h}</th>)}</tr></thead>
-        <tbody>{db.users.map(u=> <tr key={u.id} style={{borderTop:`1px solid ${C.line}`}}>
+      {sbUsers===null?<div style={{padding:32,textAlign:'center',color:C.tx3}}><Spinner size={20}/> Cargando usuarios…</div>:<table style={{width:'100%',borderCollapse:'collapse',fontSize:13.5}}>
+        <thead><tr style={{background:C.surface,color:C.tx2,fontSize:11.5,textAlign:'left'}}>{['Usuario','Rol','Cliente asignado','Último acceso',''].map((h,i)=><th key={i} style={{padding:'12px 16px',fontWeight:700}}>{h}</th>)}</tr></thead>
+        <tbody>{users.length===0?<tr><td colSpan={5} style={{padding:'24px 16px',textAlign:'center',color:C.tx3,fontSize:13}}>No hay usuarios. Invitá el primero.</td></tr>:users.map(u=> <tr key={u.id} style={{borderTop:`1px solid ${C.line}`}}>
           <td style={{padding:'12px 16px'}}><div style={{display:'flex',alignItems:'center',gap:10}}>
-            <div style={{display:'grid',placeItems:'center',width:34,height:34,borderRadius:10,background:u.role==='Admin'?C.tx:C.grad,color:'#fff',fontWeight:700,fontFamily:DISP}}>{u.name[0]}</div>
-            <div><div style={{fontWeight:600}}>{u.name}</div><div style={{fontSize:11.5,color:C.tx3}}>{u.email}</div></div></div></td>
+            <div style={{display:'grid',placeItems:'center',width:34,height:34,borderRadius:10,background:u.role==='Admin'?C.tx:C.grad,color:'#fff',fontWeight:700,fontFamily:DISP}}>{(u.name||u.email||'?')[0].toUpperCase()}</div>
+            <div><div style={{fontWeight:600}}>{u.name||u.email}</div><div style={{fontSize:11.5,color:C.tx3}}>{u.email}</div></div></div></td>
           <td style={{padding:'12px 16px'}}><Tag tone={u.role==='Admin'?'neutral':'brand'} style={u.role==='Admin'?{background:'#1A0A1C11',color:C.tx}:{}}>{u.role}</Tag></td>
-          <td style={{padding:'12px 16px',color:C.tx2}}>{u.role==='Admin'?'Todos':cname(u.clientId)}</td>
-          <td style={{padding:'12px 16px'}}><span style={{display:'inline-flex',alignItems:'center',gap:6,fontSize:12,color:u.status==='Activo'?C.exc:C.tx3}}><span style={{width:7,height:7,borderRadius:'50%',background:u.status==='Activo'?C.exc:C.tx3}}/>{u.status}</span></td>
-          <td style={{padding:'12px 16px',textAlign:'right'}}><div style={{display:'inline-flex',gap:6}}><IconBtn icon={Pencil} onClick={()=>setEdit({...u})}/><IconBtn icon={Trash2} tone="danger" onClick={()=>update(d=>{d.users=d.users.filter(x=>x.id!==u.id);})}/></div></td>
+          <td style={{padding:'12px 16px',color:C.tx2}}>{u.role==='Admin'?'Todos':cname(u.clientCode)}</td>
+          <td style={{padding:'12px 16px',color:C.tx3,fontSize:12}}>{u.lastSignIn?new Date(u.lastSignIn).toLocaleDateString('es-AR'):u.confirmed?'Nunca':'Sin confirmar'}</td>
+          <td style={{padding:'12px 16px',textAlign:'right'}}></td>
         </tr>)}</tbody>
-      </table>
+      </table>}
     </Card>
     <Modal open={!!edit} onClose={()=>setEdit(null)} title={edit?.id?'Editar usuario':'Crear usuario'} icon={ShieldCheck} width={480}>
       {edit&&<div>
         <Field label="Nombre"><Input value={edit.name} onChange={e=>setEdit({...edit,name:e.target.value})}/></Field>
         <Field label="Email"><Input value={edit.email} onChange={e=>setEdit({...edit,email:e.target.value})} placeholder="persona@empresa.com" disabled={!!edit.id}/></Field>
         {!edit.id&&<Field label="Contraseña" hint="Mínimo 6 caracteres · La compartís con el usuario"><Input type="password" value={edit.password||''} onChange={e=>setEdit({...edit,password:e.target.value})} placeholder="Ej: Empresa2025!"/></Field>}
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
-          <Field label="Rol"><Select value={edit.role} onChange={e=>setEdit({...edit,role:e.target.value})}><option>Cliente</option><option>Admin</option></Select></Field>
-          <Field label="Estado"><Select value={edit.status} onChange={e=>setEdit({...edit,status:e.target.value})}><option>Activo</option><option>Invitado</option></Select></Field>
-        </div>
-        {edit.role==='Cliente'&&<Field label="Cliente asignado"><Select value={edit.clientId} onChange={e=>setEdit({...edit,clientId:e.target.value})}>{db.clients.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</Select></Field>}
+        <Field label="Rol"><Select value={edit.role} onChange={e=>setEdit({...edit,role:e.target.value})}><option>Cliente</option><option>Admin</option></Select></Field>
+        {edit.role==='Cliente'&&<Field label="Cliente asignado"><Select value={edit.clientCode} onChange={e=>setEdit({...edit,clientCode:e.target.value})}>{db.clients.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</Select></Field>}
         {saveErr&&<div style={{background:'#FCE7E5',color:'#E5564B',borderRadius:9,padding:'9px 12px',fontSize:13,marginBottom:8}}>{saveErr}</div>}
         <div style={{display:'flex',justifyContent:'flex-end',gap:8,marginTop:6}}><Btn variant="ghost" onClick={()=>setEdit(null)}>Cancelar</Btn><Btn icon={saving?undefined:Check} onClick={save} disabled={saving}>{saving?<><Spinner size={14} color="#fff"/>Creando…</>:'Guardar'}</Btn></div>
       </div>}
