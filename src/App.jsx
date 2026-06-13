@@ -63,8 +63,8 @@ export default function App() {
         .eq('id', userId)
         .maybeSingle()
 
-      // Admin Delenio — acceso directo
-      if (userRow?.role === 'admin') {
+      // Admin Delenio — acceso directo (incluye cuando no hay row en users)
+      if (!userRow || userRow?.role === 'admin') {
         setPage('app'); setLoading(false); return
       }
 
@@ -72,6 +72,11 @@ export default function App() {
       if (userRow?.role === 'viewer' && userRow?.client_code) {
         setClientInfo({ clientCode: userRow.client_code, clientName: userRow.email })
         setPage('portal'); setLoading(false); return
+      }
+
+      // Viewer sin client_code asignado — igual va al app (admin puede asignarle un cliente)
+      if (userRow?.role === 'viewer') {
+        setPage('app'); setLoading(false); return
       }
 
       if (!userRow?.company_id) {
