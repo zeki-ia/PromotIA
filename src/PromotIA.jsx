@@ -16,26 +16,35 @@ const lsSet = (k, v) => { try { localStorage.setItem(LS_PREFIX + k, v); return {
 const lsDel = k => { try { localStorage.removeItem(LS_PREFIX + k); return { key: k, deleted: true }; } catch (e) { return null; } };
 const storage = {
   async get(key) {
-    if (serverOK) {
-      try {
-        const r = await fetch(STATE_URL, { method: 'GET' });
-        if (r.ok) { const d = await r.json(); if (d && d.value != null) lsSet(key, d.value); return d && d.value != null ? { key, value: d.value } : null; }
-        if (r.status === 404 || r.status === 501) serverOK = false;
-      } catch (e) { serverOK = false; }
-    }
+    try {
+      const r = await fetch(STATE_URL, { method: 'GET' });
+      if (r.ok) {
+        const d = await r.json();
+        if (d && d.value != null) { lsSet(key, d.value); return { key, value: d.value }; }
+        // Supabase OK pero sin datos — puede haber algo en localStorage de antes
+        const ls = lsGet(key);
+        if (ls) {
+          // Migrar localStorage → Supabase
+          await storage.set(key, ls.value);
+          return ls;
+        }
+        return null;
+      }
+      if (r.status === 404 || r.status === 501) serverOK = false;
+    } catch (e) { /* error de red temporal — caemos a localStorage */ }
     return lsGet(key);
   },
   async set(key, value) {
     lsSet(key, value);
-    if (serverOK) {
-      try { const r = await fetch(STATE_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ value }) }); if (!r.ok && (r.status === 404 || r.status === 501)) serverOK = false; }
-      catch (e) { serverOK = false; }
-    }
+    try {
+      const r = await fetch(STATE_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ value }) });
+      if (!r.ok && (r.status === 404 || r.status === 501)) serverOK = false;
+    } catch (e) { /* silencioso — ya guardó en localStorage */ }
     return { key, value };
   },
   async delete(key) {
     lsDel(key);
-    if (serverOK) { try { await fetch(STATE_URL, { method: 'DELETE' }); } catch (e) { serverOK = false; } }
+    try { await fetch(STATE_URL, { method: 'DELETE' }); } catch (e) {}
     return { key, deleted: true };
   },
 };
