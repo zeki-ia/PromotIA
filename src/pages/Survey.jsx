@@ -109,10 +109,10 @@ export default function SurveyPage({ clientId }) {
           </p>
 
           {/* Score buttons */}
-          <div style={{ display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 5, marginBottom: 8, flexWrap: 'nowrap' }}>
             {[0,1,2,3,4,5,6,7,8,9,10].map(n => (
               <button key={n} onClick={() => setScore(n)} style={{
-                width: 40, height: 40, borderRadius: 10,
+                flex: 1, minWidth: 0, height: 40, borderRadius: 10,
                 border: score === n ? `2px solid ${scoreColor(n)}` : `1.5px solid ${C.line}`,
                 background: score === n ? scoreColor(n) : '#fff',
                 color: score === n ? '#fff' : C.tx2,
