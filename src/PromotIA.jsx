@@ -82,6 +82,26 @@ const mLabel = m => { const [y,mm]=m.split('-'); return MES[+mm]+" '"+y.slice(2)
 const yearOf = m => m.split('-')[0];
 const uid = (p='id') => p+'_'+Math.random().toString(36).slice(2,9);
 const SEGMENTOS = ['Enterprise','Mid-Market','SMB'];
+const SECTORES = [
+  'Agro / Agroindustria',
+  'Construcción y real estate',
+  'Consumo masivo / Retail',
+  'Distribución y logística',
+  'Educación',
+  'Energía y utilities',
+  'Farmacéutica / Salud',
+  'Finanzas / Seguros',
+  'Gastronomía / Hotelería',
+  'Industria manufacturera',
+  'Legal / Consultoría',
+  'Medios / Entretenimiento',
+  'Recursos Humanos / PeopleOps',
+  'SaaS / Tecnología',
+  'Servicios profesionales',
+  'Telecomunicaciones',
+  'Transporte',
+  'Otro',
+];
 
 /* Portfolio Delenio completo — 5 unidades de negocio (cross-sell con IA) */
 const UNITS = {
@@ -519,7 +539,7 @@ function AdminClientes({db,update,goClient}){
           <Field label="Código"><Input value={edit.code} onChange={e=>setEdit({...edit,code:e.target.value})} placeholder="Auto si lo dejás vacío"/></Field>
         </div>
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
-          <Field label="Sector"><Input value={edit.sector} onChange={e=>setEdit({...edit,sector:e.target.value})} placeholder="Ej. Logística B2B"/></Field>
+          <Field label="Sector"><Select value={edit.sector||''} onChange={e=>setEdit({...edit,sector:e.target.value})}><option value="">— Seleccioná un sector —</option>{SECTORES.map(s=><option key={s} value={s}>{s}</option>)}</Select></Field>
           <Field label="Sitio web"><Input value={edit.web} onChange={e=>setEdit({...edit,web:e.target.value})} placeholder="www.empresa.com"/></Field>
         </div>
         <Field label="Descripción / contexto"><Textarea value={edit.contexto} onChange={e=>setEdit({...edit,contexto:e.target.value})} placeholder="A qué se dedica, a qué clientes B2B atiende, prioridades del CEO."/></Field>
@@ -1063,7 +1083,7 @@ function ClientContexto({db,clientId,update}){
 
     <div style={{display:'grid',gridTemplateColumns:'1.4fr 1fr',gap:14}}>
       <Card style={{padding:20}}>
-        <Field label="Sector / industria"><Input value={f.sector} onChange={e=>setF({...f,sector:e.target.value})} placeholder="Ej. Logística B2B, SaaS, Distribución industrial"/></Field>
+        <Field label="Sector / industria"><Select value={f.sector||''} onChange={e=>setF({...f,sector:e.target.value})}><option value="">— Seleccioná un sector —</option>{SECTORES.map(s=><option key={s} value={s}>{s}</option>)}</Select></Field>
         <Field label="¿A qué se dedica la empresa?" hint="A qué clientes B2B atendés y cómo."><Textarea value={f.contexto} onChange={e=>setF({...f,contexto:e.target.value})} placeholder="Describí tu negocio, tus clientes B2B y el contexto del CEO."/></Field>
         <Field label="Propuesta de valor"><Textarea value={f.propuesta} onChange={e=>setF({...f,propuesta:e.target.value})} style={{minHeight:64}} placeholder="Qué te diferencia de la competencia."/></Field>
       </Card>
