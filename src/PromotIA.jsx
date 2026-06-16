@@ -582,6 +582,49 @@ function useRealtimeSurvey(update, onNewDetractor){
   },[]);
 }
 
+const PLAN_META = {
+  start:  { name: 'Start',  color: '#5E4E64', bg: '#F7F2FA' },
+  growth: { name: 'Growth', color: '#73017B', bg: '#EFD9F1' },
+  scale:  { name: 'Scale',  color: '#0c01a4', bg: '#E8E7F8' },
+};
+const PLAN_STATUS_LABEL = { active: 'Activo', trialing: 'Trial', past_due: 'Pago pendiente', canceled: 'Cancelado', unpaid: 'Impago' };
+const PLAN_STATUS_COLOR = { active: C.exc, trialing: C.primary, past_due: '#E8A23D', canceled: C.critico, unpaid: C.critico };
+
+function PlanBadge({ planId, status }) {
+  const meta = PLAN_META[planId] || PLAN_META.start;
+  const statusLabel = PLAN_STATUS_LABEL[status] || status || 'Activo';
+  const statusColor = PLAN_STATUS_COLOR[status] || C.exc;
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, padding: '7px 10px', background: meta.bg, borderRadius: 9 }}>
+      <span style={{ fontFamily: DISP, fontWeight: 700, fontSize: 12, color: meta.color }}>SUSCRIPCIÓN</span>
+      <span style={{ background: meta.color, color: '#fff', borderRadius: 6, padding: '2px 8px', fontFamily: DISP, fontWeight: 700, fontSize: 11 }}>{meta.name}</span>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11.5, color: statusColor, fontWeight: 600 }}>
+        <span style={{ width: 6, height: 6, borderRadius: '50%', background: statusColor }} />{statusLabel}
+      </span>
+      <span style={{ fontSize: 11, color: C.tx3, marginLeft: 'auto' }}>Plan desde Stripe</span>
+    </div>
+  );
+}
+
+function StripePortalBtn({ customerId }) {
+  const [loading, setLoading] = useState(false);
+  const open = async () => {
+    setLoading(true);
+    try {
+      const r = await fetch('/api/stripe-portal', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ stripeCustomerId: customerId }) });
+      const d = await r.json();
+      if (d.url) window.open(d.url, '_blank');
+    } catch (e) { alert('Error al abrir portal de Stripe') }
+    setLoading(false);
+  };
+  return (
+    <button onClick={open} disabled={loading} title="Gestionar suscripción en Stripe" style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 10px', borderRadius: 8, border: `1px solid ${C.line}`, background: '#fff', color: C.tx2, fontSize: 12, fontWeight: 600, cursor: loading ? 'wait' : 'pointer', whiteSpace: 'nowrap' }}>
+      {loading ? <Spinner size={12} /> : <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>}
+      Gestionar plan
+    </button>
+  );
+}
+
 function AdminClientes({db,update,goClient}){
   const [edit,setEdit]=useState(null); const [del,setDel]=useState(null); const [qr,setQr]=useState(null);
   const blank={id:'',name:'',code:'',web:'',sector:'',contexto:'',productos:[''],propuesta:'',segmentos:[...SEGMENTOS],notas:'',surveyTitle:'',surveyColor:'#73017B',surveyLogo:'',surveyQuestion:'¿Qué tan probable es que nos recomiendes?',surveyFrequency:'ninguna',contactEmails:'',npsTarget:'',npsTargetLabel:''};
@@ -610,6 +653,7 @@ function AdminClientes({db,update,goClient}){
           </div>
           {c.contexto&&<div style={{fontSize:12.5,color:C.tx2,marginTop:11,lineHeight:1.5,display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical',overflow:'hidden'}}>{c.contexto}</div>}
           {cr&&<div style={{display:'flex',alignItems:'center',gap:6,background:C.criticoBg,color:C.critico,borderRadius:9,padding:'7px 10px',marginTop:10,fontSize:12.5,fontWeight:700}}><AlertTriangle size={13}/>NPS cayó {cr.drop} pts en 3 meses — posible riesgo de churn</div>}
+          {c.planId&&<PlanBadge planId={c.planId} status={c.planStatus}/>}
           <div style={{display:'flex',gap:6,flexWrap:'wrap',marginTop:12}}>
             <Tag tone="brand">{s.months} meses</Tag><Tag>{s.resp} respuestas</Tag>
             {s.nps!=null&&<Tag tone={b==='exc'||b==='bueno'?'good':b==='mejorar'?'warn':'bad'}>NPS {s.nps>0?'+':''}{s.nps}</Tag>}
@@ -618,6 +662,7 @@ function AdminClientes({db,update,goClient}){
           <div style={{display:'flex',gap:8,marginTop:14}}>
             <Btn size="sm" variant="soft" icon={Eye} onClick={()=>goClient(c.id)} style={{flex:1}}>Ver portal</Btn>
             <CopyLinkBtn clientId={c.id}/>
+            {c.stripeCustomerId&&<StripePortalBtn customerId={c.stripeCustomerId}/>}
             <IconBtn icon={QrCode} title="Ver QR" onClick={()=>setQr(c)}/>
           </div>
         </Card>
