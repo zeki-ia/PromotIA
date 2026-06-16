@@ -83,23 +83,92 @@ const yearOf = m => m.split('-')[0];
 const uid = (p='id') => p+'_'+Math.random().toString(36).slice(2,9);
 const SEGMENTOS = ['Enterprise','Mid-Market','SMB'];
 const SECTORES = [
-  'Agro / Agroindustria',
-  'Construcción y real estate',
-  'Consumo masivo / Retail',
-  'Distribución y logística',
-  'Educación',
-  'Energía y utilities',
-  'Farmacéutica / Salud',
-  'Finanzas / Seguros',
-  'Gastronomía / Hotelería',
-  'Industria manufacturera',
-  'Legal / Consultoría',
-  'Medios / Entretenimiento',
-  'Recursos Humanos / PeopleOps',
-  'SaaS / Tecnología',
-  'Servicios profesionales',
+  // Tecnología
+  'SaaS / Software B2B',
+  'SaaS / Software B2C',
+  'Desarrollo de software a medida',
+  'IT Services / Outsourcing tecnológico',
+  'Ciberseguridad',
+  'Inteligencia Artificial / Data',
+  'E-commerce / Marketplace',
   'Telecomunicaciones',
-  'Transporte',
+  // Servicios profesionales
+  'Consultoría de gestión / Management',
+  'Consultoría de Recursos Humanos',
+  'Consultoría legal / Estudio jurídico',
+  'Consultoría contable / Auditoría',
+  'Agencia de marketing / Publicidad',
+  'Diseño / Branding / UX',
+  'Capacitación y formación corporativa',
+  'Headhunting / Selección de personal',
+  // Finanzas
+  'Banco / Entidad financiera',
+  'Fintech / Pagos digitales',
+  'Seguros / Aseguradoras',
+  'Inversiones / Asset management',
+  'Leasing / Factoring',
+  // Salud
+  'Laboratorio farmacéutico',
+  'Clínica / Sanatorio / Prepaga',
+  'Dispositivos médicos',
+  'Salud digital / Telemedicina',
+  'Bienestar y salud corporativa',
+  // Industria y manufactura
+  'Industria metalmecánica',
+  'Industria química / Petroquímica',
+  'Industria plástica / Embalaje',
+  'Industria alimentaria',
+  'Industria textil / Indumentaria',
+  'Industria electrónica / Electromecánica',
+  'Industria automotriz / Autopartes',
+  // Logística y distribución
+  'Logística y distribución B2B',
+  'Transporte de cargas',
+  'Courier / Última milla',
+  'Almacenamiento / Depósito / WMS',
+  'Supply chain / Importación-exportación',
+  // Construcción y real estate
+  'Constructora / Desarrolladora inmobiliaria',
+  'Arquitectura e ingeniería',
+  'Materiales de construcción',
+  'Facilities management',
+  // Consumo y retail
+  'Retail / Cadena de tiendas',
+  'Supermercados / Hipermercados',
+  'Consumo masivo / FMCG',
+  'Moda / Calzado / Accesorios',
+  'Electrónica de consumo',
+  // Energía y medioambiente
+  'Oil & Gas / Petróleo',
+  'Energías renovables / Solar / Eólica',
+  'Utilities / Agua / Gas / Electricidad',
+  'Gestión ambiental / Reciclaje',
+  'Minería',
+  // Agro
+  'Agro / Agroquímica',
+  'Agroindustria / Frigoríficos',
+  'Maquinaria agrícola',
+  'Semillas / Biotecnología agraria',
+  // Educación
+  'Universidad / Instituto terciario',
+  'Escuela / Colegio privado',
+  'EdTech / Plataforma educativa',
+  'Capacitación ejecutiva / MBA',
+  // Medios y entretenimiento
+  'Medios de comunicación / Editorial',
+  'Publicidad / Medios digitales',
+  'Entretenimiento / Gaming / Streaming',
+  'Eventos / MICE',
+  // Turismo y hospitalidad
+  'Hotel / Cadena hotelera',
+  'Agencia de viajes / OTA',
+  'Gastronomía / Restaurantes / Catering',
+  'Turismo corporativo',
+  // Gobierno y tercer sector
+  'Organismo público / Estado',
+  'ONG / Fundación',
+  'Asociación / Cámara empresarial',
+  // Otro
   'Otro',
 ];
 
@@ -307,6 +376,29 @@ function IconBtn({icon:Icon,onClick,tone,title}){ const col=tone==='danger'?C.cr
 function Field({label,children,hint}){ return <label style={{display:'block',marginBottom:14}}><div style={{fontSize:12,fontWeight:700,color:C.tx2,marginBottom:6}}>{label}</div>{children}{hint&&<div style={{fontSize:11,color:C.tx3,marginTop:4}}>{hint}</div>}</label>; }
 const inputCss = {width:'100%',background:'#fff',border:`1px solid ${C.line}`,borderRadius:11,padding:'10px 13px',fontSize:13.5,color:C.tx};
 function Input(p){ return <input {...p} style={{...inputCss,...(p.style||{})}}/>; }
+const SECTOR_GROUPS = [
+  { label: 'Tecnología', options: ['SaaS / Software B2B','SaaS / Software B2C','Desarrollo de software a medida','IT Services / Outsourcing tecnológico','Ciberseguridad','Inteligencia Artificial / Data','E-commerce / Marketplace','Telecomunicaciones'] },
+  { label: 'Servicios profesionales', options: ['Consultoría de gestión / Management','Consultoría de Recursos Humanos','Consultoría legal / Estudio jurídico','Consultoría contable / Auditoría','Agencia de marketing / Publicidad','Diseño / Branding / UX','Capacitación y formación corporativa','Headhunting / Selección de personal'] },
+  { label: 'Finanzas', options: ['Banco / Entidad financiera','Fintech / Pagos digitales','Seguros / Aseguradoras','Inversiones / Asset management','Leasing / Factoring'] },
+  { label: 'Salud', options: ['Laboratorio farmacéutico','Clínica / Sanatorio / Prepaga','Dispositivos médicos','Salud digital / Telemedicina','Bienestar y salud corporativa'] },
+  { label: 'Industria y manufactura', options: ['Industria metalmecánica','Industria química / Petroquímica','Industria plástica / Embalaje','Industria alimentaria','Industria textil / Indumentaria','Industria electrónica / Electromecánica','Industria automotriz / Autopartes'] },
+  { label: 'Logística y distribución', options: ['Logística y distribución B2B','Transporte de cargas','Courier / Última milla','Almacenamiento / Depósito / WMS','Supply chain / Importación-exportación'] },
+  { label: 'Construcción y real estate', options: ['Constructora / Desarrolladora inmobiliaria','Arquitectura e ingeniería','Materiales de construcción','Facilities management'] },
+  { label: 'Consumo y retail', options: ['Retail / Cadena de tiendas','Supermercados / Hipermercados','Consumo masivo / FMCG','Moda / Calzado / Accesorios','Electrónica de consumo'] },
+  { label: 'Energía y medioambiente', options: ['Oil & Gas / Petróleo','Energías renovables / Solar / Eólica','Utilities / Agua / Gas / Electricidad','Gestión ambiental / Reciclaje','Minería'] },
+  { label: 'Agro', options: ['Agro / Agroquímica','Agroindustria / Frigoríficos','Maquinaria agrícola','Semillas / Biotecnología agraria'] },
+  { label: 'Educación', options: ['Universidad / Instituto terciario','Escuela / Colegio privado','EdTech / Plataforma educativa','Capacitación ejecutiva / MBA'] },
+  { label: 'Medios y entretenimiento', options: ['Medios de comunicación / Editorial','Publicidad / Medios digitales','Entretenimiento / Gaming / Streaming','Eventos / MICE'] },
+  { label: 'Turismo y hospitalidad', options: ['Hotel / Cadena hotelera','Agencia de viajes / OTA','Gastronomía / Restaurantes / Catering','Turismo corporativo'] },
+  { label: 'Gobierno y tercer sector', options: ['Organismo público / Estado','ONG / Fundación','Asociación / Cámara empresarial'] },
+  { label: 'Otro', options: ['Otro'] },
+];
+function SectorSelect({value,onChange}){
+  return <select value={value} onChange={e=>onChange(e.target.value)} style={{...inputCss,paddingRight:30}}>
+    <option value="">— Seleccioná un sector —</option>
+    {SECTOR_GROUPS.map(g=><optgroup key={g.label} label={g.label}>{g.options.map(o=><option key={o} value={o}>{o}</option>)}</optgroup>)}
+  </select>;
+}
 function PasswordInput({value,onChange,placeholder}){
   const [show,setShow]=useState(false);
   return <div style={{position:'relative'}}>
@@ -539,7 +631,7 @@ function AdminClientes({db,update,goClient}){
           <Field label="Código"><Input value={edit.code} onChange={e=>setEdit({...edit,code:e.target.value})} placeholder="Auto si lo dejás vacío"/></Field>
         </div>
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
-          <Field label="Sector"><Select value={edit.sector||''} onChange={e=>setEdit({...edit,sector:e.target.value})}><option value="">— Seleccioná un sector —</option>{SECTORES.map(s=><option key={s} value={s}>{s}</option>)}</Select></Field>
+          <Field label="Sector"><SectorSelect value={edit.sector||''} onChange={v=>setEdit({...edit,sector:v})}/></Field>
           <Field label="Sitio web"><Input value={edit.web} onChange={e=>setEdit({...edit,web:e.target.value})} placeholder="www.empresa.com"/></Field>
         </div>
         <Field label="Descripción / contexto"><Textarea value={edit.contexto} onChange={e=>setEdit({...edit,contexto:e.target.value})} placeholder="A qué se dedica, a qué clientes B2B atiende, prioridades del CEO."/></Field>
@@ -1083,7 +1175,7 @@ function ClientContexto({db,clientId,update}){
 
     <div style={{display:'grid',gridTemplateColumns:'1.4fr 1fr',gap:14}}>
       <Card style={{padding:20}}>
-        <Field label="Sector / industria"><Select value={f.sector||''} onChange={e=>setF({...f,sector:e.target.value})}><option value="">— Seleccioná un sector —</option>{SECTORES.map(s=><option key={s} value={s}>{s}</option>)}</Select></Field>
+        <Field label="Sector / industria"><SectorSelect value={f.sector||''} onChange={v=>setF({...f,sector:v})}/></Field>
         <Field label="¿A qué se dedica la empresa?" hint="A qué clientes B2B atendés y cómo."><Textarea value={f.contexto} onChange={e=>setF({...f,contexto:e.target.value})} placeholder="Describí tu negocio, tus clientes B2B y el contexto del CEO."/></Field>
         <Field label="Propuesta de valor"><Textarea value={f.propuesta} onChange={e=>setF({...f,propuesta:e.target.value})} style={{minHeight:64}} placeholder="Qué te diferencia de la competencia."/></Field>
       </Card>
