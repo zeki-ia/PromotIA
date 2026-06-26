@@ -820,7 +820,7 @@ function AdminUsuarios({db,update}){
     if(!u.id){
       if(!u.password||u.password.length<6){setSaveErr('La contraseña debe tener al menos 6 caracteres.');setSaving(false);return;}
       try{
-        const r=await fetch('/api/create-user',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:u.name,email:u.email,password:u.password,role:u.role,clientCode:u.role==='Cliente'?u.clientCode:null})});
+        const r=await fetch('/api/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:u.name,email:u.email,password:u.password,role:u.role,clientCode:u.role==='Cliente'?u.clientCode:null})});
         const d=await r.json();
         if(!r.ok||d.error){setSaveErr(d.error||'Error al crear usuario');setSaving(false);return;}
         await loadUsers();
